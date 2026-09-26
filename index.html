@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>渋滞ナビ地図</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+:root{
+  --bg:#f3f5f4; --panel:#ffffff; --ink:#1d2622; --muted:#5d6b64; --line:#d8dfdb;
+  --accent:#0f6b5a; --accent-ink:#ffffff; --chip:#e7eeeb;
+  --free:#2e9d4f; --slow:#e6a317; --jam:#d9412b; --stop:#8e1b12;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#121815; --panel:#1a221e; --ink:#e4ebe7; --muted:#9aa9a1; --line:#2d3833;
+    --accent:#4cc3a6; --accent-ink:#0b1411; --chip:#24302b; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#121815; --panel:#1a221e; --ink:#e4ebe7; --muted:#9aa9a1; --line:#2d3833;
+  --accent:#4cc3a6; --accent-ink:#0b1411; --chip:#24302b; color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:14px/1.55 "BIZ UDPGothic","Hiragino Sans","Yu Gothic",Meiryo,sans-serif;display:flex;flex-direction:column}
+.num{font-family:"IBM Plex Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+header{background:var(--panel);border-bottom:1px solid var(--line);padding:10px 16px;padding-top:calc(10px + env(safe-area-inset-top,0px));display:flex;flex-direction:column;gap:8px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+h1{font-size:17px;margin:0;letter-spacing:.02em;margin-right:auto}
+h1 small{font-weight:400;color:var(--muted);font-size:12px;margin-left:8px}
+.search{display:flex;gap:6px;flex:1 1 260px;max-width:460px}
+input[type=search],input[type=text],select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 10px;min-width:0}
+input[type=search]{flex:1}
+button{font:inherit;cursor:pointer;border-radius:6px;border:1px solid var(--line);background:var(--chip);color:var(--ink);padding:6px 12px}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:700}
+button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;scrollbar-width:thin}
+.chip{white-space:nowrap;border-radius:999px;padding:5px 12px}
+.chip[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:700}
+main{flex:1;display:flex;min-height:0}
+#map{flex:1;min-height:300px;background:var(--bg);position:relative;overflow:hidden}
+aside{width:320px;background:var(--panel);border-left:1px solid var(--line);overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:16px}
+aside h2{font-size:13px;margin:0 0 6px;color:var(--muted);letter-spacing:.06em}
+.prefs{display:flex;flex-wrap:wrap;gap:6px}
+.prefs button{padding:4px 10px;font-size:13px}
+.links a{display:block;color:var(--accent);padding:3px 0;text-decoration:none}
+.links a:hover{text-decoration:underline}
+.legend{display:grid;grid-template-columns:28px 1fr;gap:4px 8px;align-items:center;font-size:13px}
+.sw{height:6px;border-radius:3px}
+.note{font-size:12px;color:var(--muted)}
+.status{font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:2px}
+.pill{display:inline-block;font-size:11px;padding:1px 8px;border-radius:999px;background:var(--chip);color:var(--muted)}
+.pill.on{background:var(--free);color:#fff}
+.pill.err{background:var(--jam);color:#fff}
+label.tog{display:flex;gap:8px;align-items:center;cursor:pointer}
+.key{display:flex;gap:6px}
+.key input{flex:1}
+details summary{cursor:pointer;color:var(--muted);font-size:12px}
+.leaflet-container{font:inherit}
+.leaflet-popup-content{font-size:13px}
+.leaflet-popup-content table{border-collapse:collapse}
+.leaflet-popup-content td{padding:1px 6px 1px 0;vertical-align:top}
+.toggle-panel{display:none}
+@media (max-width:760px){
+  main{flex-direction:column}
+  aside{width:auto;border-left:0;border-top:1px solid var(--line);max-height:45%}
+  aside.collapsed{display:none}
+  .toggle-panel{display:inline-block}
+}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <div class="row">
+    <h1>渋滞ナビ地図<small>地方ごとのリアルタイム渋滞</small></h1>
+    <form class="search" id="searchForm" role="search">
+      <input type="search" id="q" list="placeList" placeholder="地方・都道府県・地名で検索（例：近畿、大阪、箱根）" aria-label="場所を検索">
+      <datalist id="placeList"></datalist>
+      <button class="primary" type="submit">検索</button>
+    </form>
+    <button class="toggle-panel" id="panelBtn" type="button">詳細</button>
+  </div>
+  <nav class="chips" id="regionChips" aria-label="地方"></nav>
+</header>
+<main>
+  <div id="map"></div>
+  <aside id="panel">
+    <section>
+      <h2 id="regionTitle">関東の都府県</h2>
+      <div class="prefs" id="prefs"></div>
+    </section>
+    <section>
+      <h2>表示レイヤー</h2>
+      <div class="status">
+        <label class="tog"><input type="checkbox" id="tFlow" checked> 渋滞（道路の混雑度・TomTom） <span class="pill" id="pFlow">キー未設定</span></label>
+        <label class="tog"><input type="checkbox" id="tInc" checked> 事故・規制（TomTom） <span class="pill" id="pInc">キー未設定</span></label>
+        <label class="tog"><input type="checkbox" id="tJartic" checked> 交通量観測点（国交省/JARTIC） <span class="pill" id="pJartic">待機</span></label>
+      </div>
+    </section>
+    <section>
+      <h2>凡例（渋滞レイヤー）</h2>
+      <div class="legend">
+        <span class="sw" style="background:var(--free)"></span><span>順調（通常速度）</span>
+        <span class="sw" style="background:var(--slow)"></span><span>混雑（通常の50〜75%）</span>
+        <span class="sw" style="background:var(--jam)"></span><span>渋滞（通常の25〜50%）</span>
+        <span class="sw" style="background:var(--stop)"></span><span>ほぼ停止（25%未満）</span>
+      </div>
+      <p class="note">観測点の円は直近5分間の通過台数（上下線合計）。大きく濃いほど多い。国交省データは約20分遅れで届きます。</p>
+    </section>
+    <section class="status">
+      <span>最終更新：<span class="num" id="updated">—</span></span>
+      <span>次の自動更新まで：<span class="num" id="countdown">—</span></span>
+      <button type="button" id="refreshBtn">今すぐ更新</button>
+    </section>
+    <section>
+      <h2>TomTom APIキー</h2>
+      <form class="key" id="keyForm">
+        <input type="text" id="apiKey" placeholder="キーを貼り付け" autocomplete="off" spellcheck="false" aria-label="TomTom APIキー">
+        <button type="submit">保存</button>
+      </form>
+      <p class="note">渋滞の色分けにはTomTomの無料キーが必要です（developer.tomtom.com で登録、1日2,500リクエストまで無料）。キーはこのブラウザ内にだけ保存されます。</p>
+    </section>
+    <section class="links">
+      <h2 id="linkTitle">公式の渋滞情報（関東）</h2>
+      <div id="links"></div>
+    </section>
+  </aside>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+(function(){
+"use strict";
+var REFRESH_SEC = 300;
+
+var REGIONS = [
+  {id:"all",name:"全国",bounds:[[30.9,128.8],[45.6,146.0]],prefs:[]},
+  {id:"hokkaido",name:"北海道",bounds:[[41.3,139.3],[45.6,146.0]],prefs:["北海道"]},
+  {id:"tohoku",name:"東北",bounds:[[36.8,139.1],[41.6,142.1]],prefs:["青森","岩手","宮城","秋田","山形","福島"]},
+  {id:"kanto",name:"関東",bounds:[[34.9,138.4],[37.2,140.9]],prefs:["茨城","栃木","群馬","埼玉","千葉","東京","神奈川"]},
+  {id:"chubu",name:"中部",bounds:[[34.5,135.4],[38.6,139.9]],prefs:["新潟","富山","石川","福井","山梨","長野","岐阜","静岡","愛知"]},
+  {id:"kinki",name:"近畿",bounds:[[33.4,134.2],[35.8,136.9]],prefs:["三重","滋賀","京都","大阪","兵庫","奈良","和歌山"]},
+  {id:"chugoku",name:"中国",bounds:[[33.7,130.8],[35.7,134.5]],prefs:["鳥取","島根","岡山","広島","山口"]},
+  {id:"shikoku",name:"四国",bounds:[[32.7,132.0],[34.5,134.8]],prefs:["徳島","香川","愛媛","高知"]},
+  {id:"kyushu",name:"九州・沖縄",bounds:[[30.9,129.4],[34.3,132.1]],prefs:["福岡","佐賀","長崎","熊本","大分","宮崎","鹿児島","沖縄"]}
+];
+var PREF = {
+  "北海道":[43.06,141.35,7],"青森":[40.82,140.74,9],"岩手":[39.70,141.15,9],"宮城":[38.27,140.87,9],"秋田":[39.72,140.10,9],"山形":[38.24,140.36,9],"福島":[37.75,140.47,9],
+  "茨城":[36.34,140.45,10],"栃木":[36.57,139.88,10],"群馬":[36.39,139.06,10],"埼玉":[35.86,139.65,11],"千葉":[35.61,140.12,10],"東京":[35.69,139.69,11],"神奈川":[35.45,139.64,11],
+  "新潟":[37.90,139.02,9],"富山":[36.70,137.21,10],"石川":[36.59,136.63,10],"福井":[36.07,136.22,10],"山梨":[35.66,138.57,10],"長野":[36.65,138.18,9],"岐阜":[35.39,136.72,10],"静岡":[34.98,138.38,10],"愛知":[35.18,136.91,11],
+  "三重":[34.73,136.51,10],"滋賀":[35.00,135.87,10],"京都":[35.02,135.76,11],"大阪":[34.69,135.52,11],"兵庫":[34.69,135.18,10],"奈良":[34.69,135.83,10],"和歌山":[34.23,135.17,10],
+  "鳥取":[35.50,134.24,10],"島根":[35.47,133.05,10],"岡山":[34.66,133.93,10],"広島":[34.40,132.46,10],"山口":[34.19,131.47,10],
+  "徳島":[34.07,134.56,10],"香川":[34.34,134.04,11],"愛媛":[33.84,132.77,10],"高知":[33.56,133.53,10],
+  "福岡":[33.61,130.42,11],"佐賀":[33.25,130.30,10],"長崎":[32.74,129.87,10],"熊本":[32.79,130.74,10],"大分":[33.24,131.61,10],"宮崎":[31.91,131.42,10],"鹿児島":[31.56,130.56,10],"沖縄":[26.21,127.68,10]
+};
+var SUFFIX = {"東京":"都","大阪":"府","京都":"府","北海道":""};
+function fullName(p){ return p + (p in SUFFIX ? SUFFIX[p] : "県"); }
+
+var NEXCO_E = {t:"NEXCO東日本 ドラとら（高速道路の渋滞・規制）",u:"https://www.drivetraffic.jp/"};
+var NEXCO_C = {t:"NEXCO中日本 アイハイウェイ中日本",u:"https://www.c-ihighway.jp/"};
+var NEXCO_W = {t:"NEXCO西日本 アイハイウェイ",u:"https://ihighway.jp/"};
+var JARTIC = {t:"JARTIC 日本道路交通情報センター（一般道・高速）",u:"https://www.jartic.or.jp/"};
+var LINKS = {
+  all:[JARTIC,NEXCO_E,NEXCO_C,NEXCO_W],
+  hokkaido:[JARTIC,NEXCO_E],
+  tohoku:[JARTIC,NEXCO_E],
+  kanto:[JARTIC,NEXCO_E,NEXCO_C,{t:"首都高速道路 渋滞・規制情報",u:"https://www.shutoko.jp/"}],
+  chubu:[JARTIC,NEXCO_C,NEXCO_E,{t:"名古屋高速 交通情報",u:"https://www.nagoya-expressway.or.jp/"}],
+  kinki:[JARTIC,NEXCO_W,NEXCO_C,{t:"阪神高速 交通情報",u:"https://www.hanshin-exp.co.jp/"}],
+  chugoku:[JARTIC,NEXCO_W,{t:"広島高速 道路情報",u:"https://www.hiroshima-hwy.or.jp/"}],
+  shikoku:[JARTIC,NEXCO_W,{t:"本州四国連絡高速道路",u:"https://www.jb-honshi.co.jp/"}],
+  kyushu:[JARTIC,NEXCO_W,{t:"福岡北九州高速 交通情報",u:"https://www.fk-tosikou.or.jp/"}]
+};
+
+function $(id){ return document.getElementById(id); }
+function store(k,v){ try{ if(v===undefined) return localStorage.getItem(k); localStorage.setItem(k,v); }catch(e){ return null; } }
+
+// ---- map ----
+var map = L.map("map",{zoomControl:true,minZoom:4,maxZoom:18});
+L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png",{
+  maxZoom:18, attribution:'<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>'
+}).addTo(map);
+map.createPane("traffic"); map.getPane("traffic").style.zIndex = 420;
+map.createPane("incidents"); map.getPane("incidents").style.zIndex = 430;
+
+var apiKey = store("tt_key") || "";
+var flowLayer = null, incLayer = null, stamp = Date.now();
+function ttUrl(kind){
+  var base = kind==="flow"
+    ? "https://api.tomtom.com/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png"
+    : "https://api.tomtom.com/traffic/map/4/tile/incidents/s3/{z}/{x}/{y}.png";
+  return base + "?key=" + encodeURIComponent(apiKey) + "&tileSize=256&t=" + stamp;
+}
+function setPill(id,cls,text){ var el=$(id); el.className="pill"+(cls?" "+cls:""); el.textContent=text; }
+function buildTomTom(){
+  if(flowLayer){ map.removeLayer(flowLayer); flowLayer=null; }
+  if(incLayer){ map.removeLayer(incLayer); incLayer=null; }
+  if(!apiKey){ setPill("pFlow","","キー未設定"); setPill("pInc","","キー未設定"); return; }
+  flowLayer = L.tileLayer(ttUrl("flow"),{pane:"traffic",maxZoom:18,opacity:.9,attribution:"渋滞 &copy; TomTom"});
+  incLayer = L.tileLayer(ttUrl("inc"),{pane:"incidents",maxZoom:18,attribution:""});
+  [["flow",flowLayer,"pFlow"],["inc",incLayer,"pInc"]].forEach(function(a){
+    var errs=0;
+    a[1].on("tileerror",function(){ if(++errs>3) setPill(a[2],"err","取得失敗（キーを確認）"); });
+    a[1].on("load",function(){ if(errs<=3) setPill(a[2],"on","表示中"); });
+  });
+  if($("tFlow").checked) flowLayer.addTo(map);
+  if($("tInc").checked) incLayer.addTo(map);
+  setPill("pFlow","", $("tFlow").checked?"読込中":"非表示");
+  setPill("pInc","", $("tInc").checked?"読込中":"非表示");
+}
+function refreshTomTom(){
+  stamp = Date.now();
+  if(flowLayer) flowLayer.setUrl(ttUrl("flow"));
+  if(incLayer) incLayer.setUrl(ttUrl("inc"));
+}
+
+// ---- JARTIC (国交省 交通量API, key不要, 約20分遅れ) ----
+var jarticLayer = L.layerGroup().addTo(map), jarticSeq = 0, jarticTimer = null;
+function jstCode(d){
+  var j = new Date(d.getTime() + 9*3600e3);
+  var m = Math.floor(j.getUTCMinutes()/5)*5;
+  function p(n){ return (n<10?"0":"")+n; }
+  return ""+j.getUTCFullYear()+p(j.getUTCMonth()+1)+p(j.getUTCDate())+p(j.getUTCHours())+p(m);
+}
+function volColor(v){
+  return v>=400?"#08306b":v>=250?"#2171b5":v>=120?"#4292c6":v>=50?"#6baed6":"#9ecae1";
+}
+function num(v){ var n=parseFloat(v); return isNaN(n)?0:n; }
+function loadJartic(){
+  clearTimeout(jarticTimer);
+  jarticTimer = setTimeout(loadJarticNow, 400);
+}
+function loadJarticNow(){
+  jarticLayer.clearLayers();
+  if(!$("tJartic").checked){ setPill("pJartic","","非表示"); return; }
+  if(map.getZoom() < 8){ setPill("pJartic","","拡大すると表示"); return; }
+  var b = map.getBounds(), now = new Date();
+  var from = jstCode(new Date(now - 60*60e3)), to = jstCode(now);
+  var cql = "時間コード>="+from+" AND 時間コード<="+to+" AND BBOX(ジオメトリ,"+
+    b.getWest().toFixed(4)+","+b.getSouth().toFixed(4)+","+b.getEast().toFixed(4)+","+b.getNorth().toFixed(4)+",'EPSG:4326')";
+  var url = "https://api.jartic-open-traffic.org/geoserver?service=WFS&version=2.0.0&request=GetFeature"+
+    "&typeNames=t_travospublic_measure_5m&srsName=EPSG:4326&outputFormat=application/json&exceptions=application/json"+
+    "&count=20000&cql_filter="+encodeURIComponent(cql);
+  var seq = ++jarticSeq;
+  setPill("pJartic","","読込中");
+  fetch(url).then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); }).then(function(gj){
+    if(seq!==jarticSeq) return;
+    var latest = {};
+    (gj.features||[]).forEach(function(f){
+      var p=f.properties||{}, id=p["常時観測点コード"]||JSON.stringify(f.geometry&&f.geometry.coordinates);
+      var t=String(p["時間コード"]||"");
+      if(!latest[id] || t>String(latest[id].properties["時間コード"]||"")) latest[id]=f;
+    });
+    var n=0;
+    Object.keys(latest).forEach(function(id){
+      var f=latest[id], p=f.properties, c=f.geometry&&f.geometry.coordinates;
+      if(!c) return;
+      if(Array.isArray(c[0])) c=c[0];
+      var lat=c[1], lng=c[0]; if(lng<60){ lat=c[0]; lng=c[1]; }
+      var up=num(p["上り・小型交通量"])+num(p["上り・大型交通量"]);
+      var dn=num(p["下り・小型交通量"])+num(p["下り・大型交通量"]);
+      var tot=up+dn, t=String(p["時間コード"]||"");
+      var when = t.length>=12 ? t.slice(4,6)+"/"+t.slice(6,8)+" "+t.slice(8,10)+":"+t.slice(10,12) : t;
+      L.circleMarker([lat,lng],{radius:4+Math.min(10,Math.sqrt(tot)/2.5),color:"#fff",weight:1,fillColor:volColor(tot),fillOpacity:.85})
+        .bindPopup("<b>交通量観測点 "+(p["常時観測点コード"]||"")+"</b><table>"+
+          "<tr><td>観測時刻</td><td class='num'>"+when+"（5分間）</td></tr>"+
+          "<tr><td>上り</td><td class='num'>"+up+" 台（大型 "+num(p["上り・大型交通量"])+"）</td></tr>"+
+          "<tr><td>下り</td><td class='num'>"+dn+" 台（大型 "+num(p["下り・大型交通量"])+"）</td></tr></table>")
+        .addTo(jarticLayer);
+      n++;
+    });
+    setPill("pJartic", n?"on":"", n? n+"地点" : "この範囲はデータなし");
+  }).catch(function(){
+    if(seq!==jarticSeq) return;
+    setPill("pJartic","err","取得できませんでした");
+  });
+}
+
+// ---- UI ----
+var current = "kanto";
+function renderChips(){
+  var nav=$("regionChips"); nav.innerHTML="";
+  REGIONS.forEach(function(r){
+    var b=document.createElement("button"); b.type="button"; b.className="chip"; b.textContent=r.name;
+    b.setAttribute("aria-pressed", r.id===current?"true":"false");
+    b.onclick=function(){ selectRegion(r.id); };
+    nav.appendChild(b);
+  });
+}
+function selectRegion(id, keepView){
+  current=id; var r=REGIONS.filter(function(x){return x.id===id;})[0];
+  renderChips();
+  $("regionTitle").textContent = id==="all" ? "地方を選ぶ" : r.name+"の都道府県";
+  var box=$("prefs"); box.innerHTML="";
+  var list = id==="all" ? REGIONS.slice(1).map(function(x){return {label:x.name,fn:function(){selectRegion(x.id);}};})
+                        : r.prefs.map(function(p){return {label:fullName(p),fn:function(){goPref(p);}};});
+  list.forEach(function(it){ var b=document.createElement("button"); b.type="button"; b.textContent=it.label; b.onclick=it.fn; box.appendChild(b); });
+  $("linkTitle").textContent = "公式の渋滞情報（"+r.name+"）";
+  $("links").innerHTML = LINKS[id].map(function(l){ return '<a href="'+l.u+'" target="_blank" rel="noopener">'+l.t+' ↗</a>'; }).join("");
+  if(!keepView) map.fitBounds(r.bounds);
+  store("region", id);
+}
+function regionOfPref(p){ return REGIONS.filter(function(r){ return r.prefs.indexOf(p)>=0; })[0]; }
+function goPref(p){
+  var r=regionOfPref(p); if(r && r.id!==current) selectRegion(r.id,true);
+  var c=PREF[p]; map.setView([c[0],c[1]],c[2]);
+}
+
+// search
+var dl=$("placeList");
+REGIONS.forEach(function(r){ var o=document.createElement("option"); o.value=r.name; dl.appendChild(o); });
+Object.keys(PREF).forEach(function(p){ var o=document.createElement("option"); o.value=fullName(p); dl.appendChild(o); });
+$("searchForm").addEventListener("submit",function(e){
+  e.preventDefault();
+  var q=$("q").value.trim(); if(!q) return;
+  var norm=q.replace(/地方$/,"");
+  if(norm==="九州"||norm==="沖縄地方"||norm==="九州沖縄") norm="九州・沖縄";
+  if(norm==="関西") norm="近畿";
+  if(norm==="北陸"||norm==="東海"||norm==="甲信越") norm="中部";
+  var r=REGIONS.filter(function(x){return x.name===norm;})[0];
+  if(r){ selectRegion(r.id); return; }
+  var p=norm.replace(/(都|府|県)$/,""); if(norm==="北海道") p="北海道";
+  if(PREF[p]){ goPref(p); return; }
+  fetch("https://msearch.gsi.go.jp/address-search/AddressSearch?q="+encodeURIComponent(q))
+    .then(function(res){return res.json();})
+    .then(function(a){
+      if(!a||!a.length){ $("q").setCustomValidity("見つかりませんでした。別の地名で試してください"); $("q").reportValidity(); setTimeout(function(){$("q").setCustomValidity("");},2500); return; }
+      var c=a[0].geometry.coordinates; map.setView([c[1],c[0]],13);
+      L.popup().setLatLng([c[1],c[0]]).setContent(a[0].properties.title).openOn(map);
+    }).catch(function(){ $("q").setCustomValidity("地名検索に接続できませんでした"); $("q").reportValidity(); setTimeout(function(){$("q").setCustomValidity("");},2500); });
+});
+
+// key
+$("apiKey").value = apiKey;
+$("keyForm").addEventListener("submit",function(e){
+  e.preventDefault(); apiKey=$("apiKey").value.trim(); store("tt_key",apiKey); buildTomTom();
+});
+$("tFlow").onchange=function(){ if(!flowLayer) return; this.checked?flowLayer.addTo(map):(map.removeLayer(flowLayer),setPill("pFlow","","非表示")); };
+$("tInc").onchange=function(){ if(!incLayer) return; this.checked?incLayer.addTo(map):(map.removeLayer(incLayer),setPill("pInc","","非表示")); };
+$("tJartic").onchange=loadJarticNow;
+$("panelBtn").onclick=function(){ $("panel").classList.toggle("collapsed"); setTimeout(function(){map.invalidateSize();},50); };
+if(window.matchMedia("(max-width:760px)").matches) $("panel").classList.add("collapsed");
+map.on("moveend", loadJartic);
+
+// auto refresh
+var left = REFRESH_SEC;
+function refreshAll(){
+  refreshTomTom(); loadJarticNow(); left=REFRESH_SEC;
+  $("updated").textContent = new Date().toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit",second:"2-digit"});
+}
+$("refreshBtn").onclick=refreshAll;
+setInterval(function(){
+  left--; if(left<=0) refreshAll();
+  $("countdown").textContent = Math.floor(left/60)+"分"+("0"+(left%60)).slice(-2)+"秒";
+},1000);
+
+var saved = store("region");
+selectRegion(REGIONS.some(function(r){return r.id===saved;}) ? saved : "kanto");
+buildTomTom();
+refreshAll();
+})();
+</script>
+</body>
+</html>
