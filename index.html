@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=Barlow+Semi+Condensed:wght@500;700&display=swap">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <style>
 :root{
   color-scheme:dark;
@@ -26,10 +26,9 @@ button{font:inherit;color:inherit;cursor:pointer;-webkit-tap-highlight-color:tra
 button:focus-visible,input:focus-visible{outline:2px solid var(--slow);outline-offset:2px}
 
 #map{position:fixed;inset:0;background:var(--asphalt)}
-.leaflet-container{background:var(--asphalt);font:inherit}
-.base-tiles{filter:invert(1) hue-rotate(180deg) saturate(.35) brightness(.72) contrast(1.05)}
-.leaflet-control-attribution{background:rgba(13,20,24,.7)!important;color:var(--muted)!important;font-size:10px}
-.leaflet-control-attribution a{color:var(--muted)!important}
+.maplibregl-ctrl-attrib{background:rgba(13,20,24,.7)!important;color:var(--muted)!important;font-size:10px}
+.maplibregl-ctrl-attrib a{color:var(--muted)!important}
+.maplibregl-ctrl-attrib-button{filter:invert(1)}
 
 /* ---- 上部：レーダー計器 ---- */
 .gauge{position:fixed;left:12px;right:12px;top:calc(10px + env(safe-area-inset-top,0px));z-index:1000;
@@ -101,9 +100,13 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--slow);outline-o
 
 .me{width:18px;height:18px;border-radius:50%;background:#4db8ff;border:3px solid #fff;box-shadow:0 0 0 0 rgba(77,184,255,.7);animation:ping 2s infinite}
 @keyframes ping{70%{box-shadow:0 0 0 16px rgba(77,184,255,0)}100%{box-shadow:0 0 0 0 rgba(77,184,255,0)}}
-.pin{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font:700 12px "BIZ UDPGothic",sans-serif;color:#111;border:2px solid #0d1418;box-shadow:0 2px 6px rgba(0,0,0,.5)}
-.leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--deck);color:var(--ink)}
-.leaflet-popup-content{margin:10px 12px;font-size:13px}
+.pin{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font:700 12px "BIZ UDPGothic",sans-serif;color:#111;border:2px solid #0d1418;box-shadow:0 2px 6px rgba(0,0,0,.5);cursor:pointer}
+.pinwrap{display:flex;align-items:center;gap:4px;cursor:pointer}
+.pinlbl{display:flex;align-items:center;gap:4px;background:rgba(13,20,24,.85);border-radius:6px;padding:2px 6px 2px 3px;font-size:12px;font-weight:700;white-space:nowrap}
+.pinlbl .e-no{font-size:12px}
+.maplibregl-popup-content{background:var(--deck);color:var(--ink);font-size:13px;border-radius:10px;padding:10px 12px}
+.maplibregl-popup-tip{border-top-color:var(--deck)!important;border-bottom-color:var(--deck)!important}
+.maplibregl-popup-close-button{color:var(--muted);font-size:18px}
 
 @media (min-width:900px){
   .sheet{left:12px;right:auto;top:calc(128px + env(safe-area-inset-top,0px));bottom:12px;width:400px;height:auto!important;border-radius:18px;border:1px solid var(--line);margin:0}
@@ -191,23 +194,20 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--slow);outline-o
   </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/leaflet.vectorgrid@1.3.0/dist/Leaflet.VectorGrid.bundled.min.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script>
 (function(){
 "use strict";
 var RADIUS_KM = 45, REFRESH_MS = 120000;
 var CAT = {
-  1:{k:"acc",t:"事故",c:"var(--accident)",h:"#ff4d4f"},
-  14:{k:"acc",t:"故障車",c:"var(--accident)",h:"#ff4d4f"},
-  6:{k:"jam",t:"渋滞",c:"var(--jam)",h:"#ff9f1a"},
-  8:{k:"cls",t:"通行止",c:"var(--closed)",h:"#b36bff"},
-  7:{k:"cls",t:"車線規制",c:"var(--closed)",h:"#b36bff"},
-  9:{k:"cls",t:"工事",c:"var(--works)",h:"#4db8ff"}
+  1:{k:"acc",t:"事故",h:"#ff4d4f"}, 14:{k:"acc",t:"故障車",h:"#ff4d4f"},
+  6:{k:"jam",t:"渋滞",h:"#ff9f1a"},
+  8:{k:"cls",t:"通行止",h:"#b36bff"}, 7:{k:"cls",t:"車線規制",h:"#b36bff"}, 9:{k:"cls",t:"工事",h:"#4db8ff"}
 };
-function cat(ic){ return CAT[ic] || {k:"etc",t:"注意",c:"var(--slow)",h:"#ffd23f"}; }
+function cat(ic){ return CAT[ic] || {k:"etc",t:"注意",h:"#ffd23f"}; }
 var ROADS = {E1:"東名・名神",E1A:"新東名・新名神",E2:"山陽道",E2A:"中国道",E3:"九州道",E4:"東北道",E5:"道央道",E6:"常磐道",
-  E8:"北陸道",E9:"山陰道",E17:"関越道",E18:"上信越道",E20:"中央道",E41:"東海北陸道",E50:"北関東道",E51:"東関東道",C3:"外環道",C4:"圏央道"};
+  E8:"北陸道",E9:"山陰道",E17:"関越道",E18:"上信越道",E20:"中央道",E41:"東海北陸道",E50:"北関東道",E51:"東関東道",C1:"首都高 都心環状線",C2:"首都高 中央環状線",C3:"外環道",C4:"圏央道",E14:"京葉道路"};
 var REGIONS = [
   ["北海道","札幌",43.06,141.35],["東北","仙台",38.27,140.87],["関東","東京",35.68,139.77],
   ["中部","名古屋",35.17,136.90],["北陸","金沢",36.58,136.65],["近畿","大阪",34.70,135.50],
@@ -219,30 +219,88 @@ function $(id){ return document.getElementById(id); }
 function ls(k,v){ try{ if(v===undefined) return localStorage.getItem(k); if(v===null) localStorage.removeItem(k); else localStorage.setItem(k,v);}catch(e){ return null; } }
 function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];}); }
 
-var key = ls("tt_key") || "", demo = false, hwyOnly = true;
-var focus = null, focusLabel = "", me = null, incidents = [], seq = 0;
+var key = ls("tt_key") || "", demo = false;
+var focus = null, me = null, incidents = [], seq = 0, ready = false;
 
-// ---- 地図 ----
-var map = L.map("map",{zoomControl:false,attributionControl:true,minZoom:5,maxZoom:17}).setView([36.2,138.3],6);
-L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/blank/{z}/{x}/{y}.png",{className:"base-tiles",maxZoom:18,maxNativeZoom:14,
-  attribution:'<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>'}).addTo(map);
-map.createPane("flow").style.zIndex=410;
-var flow = null;
-function setFlow(){
-  if(flow){ map.removeLayer(flow); flow=null; }
-  if(!key) return;
-  // 高速道路（Motorway）だけを描き、一般道は描かない
-  flow = L.vectorGrid.protobuf("https://api.tomtom.com/traffic/map/4/tile/flow/relative/{z}/{x}/{y}.pbf?key="+encodeURIComponent(key)+"&t="+Date.now(),{
-    pane:"flow",maxZoom:18,interactive:false,rendererFactory:L.canvas.tile,attribution:"交通情報 &copy; TomTom",
-    vectorTileLayerStyles:{"Traffic flow":function(p,z){
-      if(p.road_type!=="Motorway") return {stroke:false,fill:false,weight:0,opacity:0};
-      var v=parseFloat(p.traffic_level), col = p.road_closure===true||p.road_closure==="true" ? "#b36bff" :
-        isNaN(v)||v>=0.75 ? "#3ddc84" : v>=0.5 ? "#ffd23f" : v>=0.25 ? "#ff9f1a" : "#ff4d4f";
-      return {color:col,weight:z<9?2.5:z<12?4:6,opacity:.95,lineCap:"round"};
-    }}
-  }).addTo(map);
+// ---- 地図（国土地理院ベクトルタイル：海岸線・県境・高速道路・路線名だけを描く） ----
+var MOTORWAY = ["any",["==",["to-string",["get","vt_motorway"]],"1"],["==",["get","vt_rdctg"],"高速自動車国道等"]];
+var ANNO_CODE = ["to-number",["get","vt_code"],0];
+var ANNO_TEXT = ["to-string",["coalesce",["get","vt_text"],["get","knj"],""]];
+var HWY_NAME = ["any"].concat(["高速","自動車道","首都高","有料","道路","バイパス","環状"].map(function(w){ return ["in",w,ANNO_TEXT]; }));
+var map = new maplibregl.Map({
+  container:"map", center:[138.3,36.2], zoom:5, minZoom:4, maxZoom:17, attributionControl:{compact:true},
+  pitchWithRotate:false, dragRotate:false, localIdeographFontFamily:'"BIZ UDPGothic","Hiragino Sans","Yu Gothic",sans-serif',
+  style:{
+    version:8,
+    glyphs:"https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+    sources:{gsi:{type:"vector",tiles:["https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/{z}/{x}/{y}.pbf"],minzoom:4,maxzoom:16,
+      attribution:'<a href="https://github.com/gsi-cyberjapan/optimal_bvmap" target="_blank" rel="noopener">国土地理院ベクトルタイル</a>'}},
+    layers:[
+      {id:"bg",type:"background",paint:{"background-color":"#0d1418"}},
+      {id:"coast",type:"line",source:"gsi","source-layer":"Cstline",paint:{"line-color":"#3a4f5b","line-width":1}},
+      {id:"pref",type:"line",source:"gsi","source-layer":"AdmBdry",maxzoom:10,paint:{"line-color":"#24343d","line-width":.8,"line-dasharray":[3,2]}},
+      {id:"hwy-case",type:"line",source:"gsi","source-layer":"RdCL",filter:MOTORWAY,layout:{"line-cap":"round","line-join":"round"},
+        paint:{"line-color":"#0d1418","line-width":["interpolate",["linear"],["zoom"],5,2.5,10,6,14,12]}},
+      {id:"hwy",type:"line",source:"gsi","source-layer":"RdCL",filter:MOTORWAY,layout:{"line-cap":"round","line-join":"round"},
+        paint:{"line-color":"#56707e","line-width":["interpolate",["linear"],["zoom"],5,1.2,10,3,14,7]}}
+    ]
+  }
+});
+
+function shieldImage(){
+  var r=2, w=24*r, h=24*r, c=document.createElement("canvas"); c.width=w; c.height=h;
+  var g=c.getContext("2d"); function rr(x,y,ww,hh,rad){ g.beginPath(); g.moveTo(x+rad,y); g.arcTo(x+ww,y,x+ww,y+hh,rad); g.arcTo(x+ww,y+hh,x,y+hh,rad); g.arcTo(x,y+hh,x,y,rad); g.arcTo(x,y,x+ww,y,rad); g.closePath(); }
+  g.fillStyle="#ffffff"; rr(0,0,w,h,7*r); g.fill();
+  g.fillStyle="#0b7a4b"; rr(2*r,2*r,w-4*r,h-4*r,5*r); g.fill();
+  return {width:w,height:h,data:g.getImageData(0,0,w,h).data};
 }
-var incLayer = L.layerGroup().addTo(map), meMarker = null, ring = null;
+function circlePoly(c,km){
+  var pts=[]; for(var i=0;i<=64;i++){ var a=i/64*2*Math.PI;
+    pts.push([c[1]+km/(111.32*Math.cos(c[0]*Math.PI/180))*Math.sin(a), c[0]+km/110.57*Math.cos(a)]); }
+  return {type:"Feature",geometry:{type:"LineString",coordinates:pts},properties:{}};
+}
+var EMPTY={type:"FeatureCollection",features:[]};
+
+map.on("load",function(){
+  map.addImage("shield", shieldImage(), {pixelRatio:2, stretchX:[[16,32]], stretchY:[[16,32]], content:[10,8,38,40]});
+  map.addSource("ring",{type:"geojson",data:EMPTY});
+  map.addSource("inc",{type:"geojson",data:EMPTY});
+  map.addLayer({id:"ring",type:"line",source:"ring",paint:{"line-color":"#3ddc84","line-opacity":.35,"line-width":1,"line-dasharray":[3,4]}});
+  map.addLayer({id:"inc-line",type:"line",source:"inc",filter:["==",["geometry-type"],"LineString"],layout:{"line-cap":"round","line-join":"round"},
+    paint:{"line-color":["get","color"],"line-width":["interpolate",["linear"],["zoom"],6,4,12,8],"line-opacity":.95}});
+  // 路線名・番号・IC名
+  map.addLayer({id:"lbl-no",type:"symbol",source:"gsi","source-layer":"Anno",filter:["==",ANNO_CODE,2904],
+    layout:{"text-field":ANNO_TEXT,"text-font":["Open Sans Bold"],"text-size":12,"icon-image":"shield","icon-text-fit":"both",
+      "icon-text-fit-padding":[1,3,1,3],"symbol-sort-key":1,"text-allow-overlap":false},
+    paint:{"text-color":"#ffffff"}});
+  map.addLayer({id:"lbl-name",type:"symbol",source:"gsi","source-layer":"Anno",filter:["all",["==",ANNO_CODE,411],HWY_NAME],
+    layout:{"text-field":ANNO_TEXT,"text-font":["Open Sans Semibold"],"text-size":["interpolate",["linear"],["zoom"],6,11,12,14],"symbol-sort-key":2},
+    paint:{"text-color":"#bfe8d2","text-halo-color":"#0d1418","text-halo-width":2}});
+  map.addLayer({id:"lbl-ic",type:"symbol",source:"gsi","source-layer":"Anno",minzoom:9,filter:["all",[">=",ANNO_CODE,2941],["<=",ANNO_CODE,2945]],
+    layout:{"text-field":ANNO_TEXT,"text-font":["Open Sans Semibold"],"text-size":11,"symbol-sort-key":3},
+    paint:{"text-color":"#93a9b4","text-halo-color":"#0d1418","text-halo-width":1.5}});
+  ready=true;
+  setFlow();
+  if(focus) drawFocus(false);
+  render();
+});
+
+// ---- TomTom 混雑度（高速道路のみ） ----
+function flowUrl(){ return "https://api.tomtom.com/traffic/map/4/tile/flow/relative/{z}/{x}/{y}.pbf?key="+encodeURIComponent(key)+"&t="+Date.now(); }
+function setFlow(){
+  if(!ready) return;
+  if(map.getLayer("flow")) map.removeLayer("flow");
+  if(map.getSource("flow")) map.removeSource("flow");
+  if(!key) return;
+  map.addSource("flow",{type:"vector",tiles:[flowUrl()],maxzoom:18,attribution:"交通情報 &copy; TomTom"});
+  var lvl=["to-number",["get","traffic_level"],1];
+  map.addLayer({id:"flow",type:"line",source:"flow","source-layer":"Traffic flow",filter:["==",["get","road_type"],"Motorway"],
+    layout:{"line-cap":"round","line-join":"round"},
+    paint:{"line-color":["case",["==",["to-string",["get","road_closure"]],"true"],"#b36bff",
+      ["step",lvl,"#ff4d4f",0.25,"#ff9f1a",0.5,"#ffd23f",0.75,"#3ddc84"]],
+      "line-width":["interpolate",["linear"],["zoom"],5,1.5,10,3.5,14,7]}}, "inc-line");
+}
+function refreshFlow(){ var s=map.getSource("flow"); if(s && s.setTiles) s.setTiles([flowUrl()]); }
 
 // ---- 位置 ----
 function km(a,b){ var R=6371,dLa=(b[0]-a[0])*Math.PI/180,dLo=(b[1]-a[1])*Math.PI/180;
@@ -251,38 +309,42 @@ function km(a,b){ var R=6371,dLa=(b[0]-a[0])*Math.PI/180,dLo=(b[1]-a[1])*Math.PI
 function bearing(a,b){ var y=Math.sin((b[1]-a[1])*Math.PI/180)*Math.cos(b[0]*Math.PI/180);
   var x=Math.cos(a[0]*Math.PI/180)*Math.sin(b[0]*Math.PI/180)-Math.sin(a[0]*Math.PI/180)*Math.cos(b[0]*Math.PI/180)*Math.cos((b[1]-a[1])*Math.PI/180);
   return Math.atan2(y,x); }
-function setFocus(ll,label,zoom){
-  focus=ll; focusLabel=label;
+function pad(){ return {top:130,bottom:(window.innerWidth>=900?40:180),left:(window.innerWidth>=900?420:20),right:70}; }
+function drawFocus(animate){
+  var ring=circlePoly(focus,RADIUS_KM);
+  if(ready) map.getSource("ring").setData(ring);
+  var b=new maplibregl.LngLatBounds(); ring.geometry.coordinates.forEach(function(c){ b.extend(c); });
+  map.fitBounds(b,{padding:pad(),animate:animate});
+}
+function setFocus(ll,label){
+  focus=ll;
   $("where").textContent=label+"から半径"+RADIUS_KM+"km";
-  if(ring) map.removeLayer(ring);
-  ring=L.circle(ll,{radius:RADIUS_KM*1000,color:"#3ddc84",weight:1,opacity:.35,fill:false,dashArray:"4 6",interactive:false}).addTo(map);
-  map.fitBounds(ring.getBounds(),{paddingTopLeft:[0,120],paddingBottomRight:[0,170]});
+  drawFocus(true);
   $("searchHere").hidden=true;
   load();
+}
+var meMarker=null;
+function placeMe(){
+  if(!meMarker){ var el=document.createElement("div"); el.className="me"; meMarker=new maplibregl.Marker({element:el}).setLngLat([me[1],me[0]]).addTo(map); }
+  else meMarker.setLngLat([me[1],me[0]]);
 }
 function locate(){
   if(!navigator.geolocation){ noLocation(); return; }
   $("where").textContent="現在地を探しています…";
   navigator.geolocation.getCurrentPosition(function(p){
-    me=[p.coords.latitude,p.coords.longitude];
-    if(!meMarker) meMarker=L.marker(me,{icon:L.divIcon({className:"",html:'<div class="me"></div>',iconSize:[18,18]}),interactive:false,zIndexOffset:1000}).addTo(map);
-    else meMarker.setLatLng(me);
-    setFocus(me,"現在地");
+    me=[p.coords.latitude,p.coords.longitude]; placeMe(); setFocus(me,"現在地");
   }, noLocation, {enableHighAccuracy:true,timeout:10000,maximumAge:60000});
 }
 function noLocation(){
   $("where").textContent="現在地が取れませんでした";
   $("verdict").textContent="「地方」から場所を選んでください";
-  if(!focus) setFocus([35.68,139.77],"東京周辺",10);
+  if(!focus) setFocus([35.68,139.77],"東京周辺");
 }
 if(navigator.geolocation){
-  navigator.geolocation.watchPosition(function(p){
-    me=[p.coords.latitude,p.coords.longitude];
-    if(meMarker) meMarker.setLatLng(me);
-  },function(){}, {enableHighAccuracy:true,maximumAge:30000});
+  navigator.geolocation.watchPosition(function(p){ me=[p.coords.latitude,p.coords.longitude]; if(meMarker) placeMe(); },function(){}, {enableHighAccuracy:true,maximumAge:30000});
 }
 
-// ---- データ ----
+// ---- 事故・渋滞データ ----
 function isHighway(inc){
   var p=inc.properties||{}, rn=(p.roadNumbers||[]).join(" ");
   if(/(^|\s)[EC]\d/.test(rn)) return true;
@@ -291,7 +353,7 @@ function isHighway(inc){
 }
 function roadLabel(p){
   var nums=p.roadNumbers||[]; var e=nums.filter(function(n){return /^[EC]\d/.test(n);})[0];
-  return {no:e||nums[0]||"", name:e&&ROADS[e]?ROADS[e]:(nums.length?"":"道路名なし")};
+  return {no:e||nums[0]||"", name:e&&ROADS[e]?ROADS[e]:(nums.length?"":"路線名不明")};
 }
 function coordsOf(inc){
   var g=inc.geometry||{}, c=g.coordinates||[];
@@ -302,7 +364,7 @@ function nearest(pts,ll){ var best=pts[0],bd=1e9; pts.forEach(function(p){ var d
 
 function load(){
   if(!focus) return;
-  if(!key && !demo){ openKey(); render(); return; }
+  if(!key && !demo){ render(); return; }
   var my=++seq;
   $("updated").textContent="取得中…";
   if(demo){ incidents=sampleData(); render(); stamp(); return; }
@@ -319,18 +381,22 @@ function load(){
     $("list").innerHTML='<div class="empty">通信状況を確認して「更新」を押してください。</div>';
   });
 }
-function stamp(){ $("updated").textContent=new Date().toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+" 更新"+(demo?" ":""); if(demo) $("updated").innerHTML+='<span class="demo-flag">サンプル</span>'; }
+function stamp(){ $("updated").textContent=new Date().toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+" 更新"; if(demo) $("updated").innerHTML+='<span class="demo-flag">サンプル</span>'; }
 
+var pins=[], popup=null;
+function showPopup(r,html){ if(popup) popup.remove(); popup=new maplibregl.Popup({offset:16,maxWidth:"260px"}).setLngLat([r.pts[0][1],r.pts[0][0]]).setHTML(html).addTo(map); }
 function render(){
-  incLayer.clearLayers();
+  pins.forEach(function(m){ m.remove(); }); pins=[];
+  if(ready) map.getSource("inc").setData(EMPTY);
+  if(!focus) return;
   if(!key && !demo){
     $("verdict").textContent="渋滞データが未接続です";
     ["cAcc","cJam","cCls"].forEach(function(id){ $(id).textContent="–"; });
     $("blips").innerHTML="";
-    $("list").innerHTML='<div class="empty">右の「設定」から渋滞データを接続してください。</div>';
+    $("list").innerHTML='<div class="empty">右の「設定」から渋滞データを接続すると、ここに高速道路の事故・渋滞が並びます。地図上の緑の番号は高速道路の路線番号です。</div>';
     return;
   }
-  var rows = incidents.filter(function(i){ return !hwyOnly || isHighway(i); }).map(function(i){
+  var rows = incidents.filter(isHighway).map(function(i){
     var pts=coordsOf(i); if(!pts.length) return null;
     var n=nearest(pts,focus);
     return {i:i,p:i.properties||{},pts:pts,near:n.p,dist:n.d,cat:cat((i.properties||{}).iconCategory)};
@@ -341,37 +407,33 @@ function render(){
   var n={acc:0,jam:0,cls:0};
   rows.forEach(function(r){ if(n[r.cat.k]!==undefined) n[r.cat.k]++; });
   $("cAcc").textContent=n.acc; $("cJam").textContent=n.jam; $("cCls").textContent=n.cls;
-  var scope = hwyOnly ? "高速道路" : "道路";
-  $("verdict").textContent = n.acc ? "事故 "+n.acc+"件。近くの"+scope+"に注意" :
-    n.jam ? "事故なし。渋滞が"+n.jam+"か所" :
-    n.cls ? "事故・渋滞なし。規制が"+n.cls+"か所" : "周辺の"+scope+"は順調です";
+  $("verdict").textContent = n.acc ? "事故 "+n.acc+"件。近くの高速道路に注意" :
+    n.jam ? "事故なし。渋滞が"+n.jam+"か所" : n.cls ? "事故・渋滞なし。規制が"+n.cls+"か所" : "周辺の高速道路は順調です";
 
-  // レーダーの点
   var g=$("blips"); g.innerHTML="";
   rows.slice().sort(function(a,b){return rank[b.cat.k]-rank[a.cat.k];}).forEach(function(r){
     var d=Math.min(r.dist,RADIUS_KM)/RADIUS_KM*46, a=bearing(focus,r.near);
-    var x=50+d*Math.sin(a), y=50-d*Math.cos(a);
     var c=document.createElementNS("http://www.w3.org/2000/svg","circle");
-    c.setAttribute("cx",x.toFixed(1)); c.setAttribute("cy",y.toFixed(1)); c.setAttribute("r",r.cat.k==="acc"?3.6:2.6);
+    c.setAttribute("cx",(50+d*Math.sin(a)).toFixed(1)); c.setAttribute("cy",(50-d*Math.cos(a)).toFixed(1)); c.setAttribute("r",r.cat.k==="acc"?3.6:2.6);
     c.setAttribute("fill",r.cat.h); c.setAttribute("stroke","#0d1418"); c.setAttribute("stroke-width","1");
     g.appendChild(c);
   });
 
-  // 地図と一覧
-  var list=$("list"); list.innerHTML="";
-  if(!rows.length){
-    list.innerHTML='<div class="empty">'+("半径"+RADIUS_KM+"km以内の"+scope+"に事故・渋滞・規制はありません。")+'</div>';
-  }
+  var feats=[], list=$("list"); list.innerHTML="";
+  if(!rows.length) list.innerHTML='<div class="empty">半径'+RADIUS_KM+'km以内の高速道路に事故・渋滞・規制はありません。</div>';
   rows.forEach(function(r){
     var p=r.p, rl=roadLabel(p);
     var desc=(p.events||[]).map(function(e){return e.description;}).filter(Boolean).join("・");
     var delayMin=p.delay?Math.round(p.delay/60):0, lenKm=p.length?(p.length/1000):0;
     var sect=(p.from||"")+(p.to?" → "+p.to:"");
-    var line = r.pts.length>1 ? L.polyline(r.pts,{color:r.cat.h,weight:r.cat.k==="acc"?7:5,opacity:.95}).addTo(incLayer) : null;
-    var pin = L.marker(r.pts[0],{icon:L.divIcon({className:"",html:'<div class="pin" style="background:'+r.cat.h+'">'+esc(r.cat.t.charAt(0))+'</div>',iconSize:[26,26]})}).addTo(incLayer);
-    var html='<b>'+esc(r.cat.t)+'</b> '+esc(rl.no)+' '+esc(rl.name)+'<br>'+esc(sect)+(desc?'<br>'+esc(desc):'')+
+    if(r.pts.length>1) feats.push({type:"Feature",properties:{color:r.cat.h},geometry:{type:"LineString",coordinates:r.pts.map(function(x){return [x[1],x[0]];})}});
+    var html='<b>'+esc(r.cat.t)+'</b>　'+esc(rl.no)+' '+esc(rl.name)+'<br>'+esc(sect)+(desc?'<br>'+esc(desc):'')+
       (delayMin?'<br>遅れ 約'+delayMin+'分':'')+(lenKm?'・長さ '+lenKm.toFixed(1)+'km':'');
-    pin.bindPopup(html); if(line) line.bindPopup(html);
+    var el=document.createElement("div"); el.className="pinwrap";
+    el.innerHTML='<span class="pin" style="background:'+r.cat.h+'">'+esc(r.cat.t.charAt(0))+'</span>'+
+      (rl.no||rl.name?'<span class="pinlbl">'+(rl.no?'<span class="e-no">'+esc(rl.no)+'</span>':'')+esc(rl.name)+'</span>':'');
+    el.onclick=function(ev){ ev.stopPropagation(); showPopup(r,html); };
+    pins.push(new maplibregl.Marker({element:el,anchor:"left",offset:[-13,0]}).setLngLat([r.pts[0][1],r.pts[0][0]]).addTo(map));
 
     var b=document.createElement("button"); b.type="button"; b.className="item";
     b.innerHTML='<span class="stripe" style="background:'+r.cat.h+'"></span>'+
@@ -380,14 +442,17 @@ function render(){
       '<span class="sect">'+esc(sect||"区間情報なし")+'</span>'+(desc?'<span class="desc">'+esc(desc)+'</span>':'')+'</span>'+
       '<span class="side"><span><b class="num">'+(r.dist<1?"<1":Math.round(r.dist))+'</b> km先</span>'+
       (delayMin?'<span class="num">+'+delayMin+'分</span>':'')+(lenKm>=0.1?'<span class="num">'+lenKm.toFixed(1)+'km</span>':'')+'</span>';
-    b.onclick=function(){ if(line) map.fitBounds(line.getBounds(),{padding:[60,60],maxZoom:14}); else map.setView(r.pts[0],14); pin.openPopup(); setSheet(false); };
+    b.onclick=function(){
+      var bb=new maplibregl.LngLatBounds(); r.pts.forEach(function(x){ bb.extend([x[1],x[0]]); });
+      map.fitBounds(bb,{padding:pad(),maxZoom:13}); showPopup(r,html); setSheet(false);
+    };
     list.appendChild(b);
   });
+  if(ready) map.getSource("inc").setData({type:"FeatureCollection",features:feats});
 }
 
-// ---- サンプル（キーなしで見た目を確認する用） ----
+// ---- サンプル（実在のIC・JCTの位置、東京駅周辺） ----
 function sampleData(){
-  // 実在のIC・JCTの位置（東京駅周辺でのサンプル）
   function ln(a,b){ return {type:"LineString",coordinates:[[a[1],a[0]],[b[1],b[0]]]}; }
   return [
     {geometry:ln([35.456,139.378],[35.439,139.392]),properties:{iconCategory:1,roadNumbers:["E1"],from:"厚木IC",to:"海老名JCT",delay:1320,length:4200,events:[{description:"事故・車線規制"}]}},
@@ -398,14 +463,13 @@ function sampleData(){
   ];
 }
 
-// ---- UI ----
+// ---- 画面操作 ----
 function setSheet(open){
-  var h = open ? Math.round(window.innerHeight*0.62) : 168;
-  document.documentElement.style.setProperty("--sheet-h",h+"px");
+  document.documentElement.style.setProperty("--sheet-h",(open?Math.round(window.innerHeight*0.62):168)+"px");
   $("handle").setAttribute("aria-expanded",open?"true":"false");
 }
 $("handle").onclick=function(){ setSheet($("handle").getAttribute("aria-expanded")!=="true"); };
-$("btnRefresh").onclick=function(){ setFlow(); load(); };
+$("btnRefresh").onclick=function(){ refreshFlow(); load(); };
 $("btnLocate").onclick=locate;
 
 function openKey(){ $("keyInput").value=key; $("keyPanel").hidden=false; }
@@ -416,7 +480,7 @@ $("btnDemo").onclick=function(){ demo=true; $("keyPanel").hidden=true; setFocus(
 
 var rg=$("regions");
 REGIONS.forEach(function(r){ var b=document.createElement("button"); b.type="button"; b.innerHTML=esc(r[0])+"<small>"+esc(r[1])+"周辺</small>";
-  b.onclick=function(){ $("placePanel").hidden=true; setFocus([r[2],r[3]],r[1]+"周辺",10); }; rg.appendChild(b); });
+  b.onclick=function(){ $("placePanel").hidden=true; setFocus([r[2],r[3]],r[1]+"周辺"); }; rg.appendChild(b); });
 $("btnPlace").onclick=function(){ $("placePanel").hidden=false; };
 $("closePlace").onclick=function(){ $("placePanel").hidden=true; };
 [$("keyPanel"),$("placePanel")].forEach(function(p){ p.addEventListener("click",function(e){ if(e.target===p) p.hidden=true; }); });
@@ -424,18 +488,17 @@ $("placeForm").addEventListener("submit",function(e){
   e.preventDefault(); var q=$("placeInput").value.trim(); if(!q) return;
   fetch("https://msearch.gsi.go.jp/address-search/AddressSearch?q="+encodeURIComponent(q)).then(function(r){return r.json();}).then(function(a){
     if(!a||!a.length){ $("placeInput").value=""; $("placeInput").placeholder="見つかりませんでした。別の地名で"; return; }
-    var c=a[0].geometry.coordinates; $("placePanel").hidden=true; setFocus([c[1],c[0]],q+"周辺",11);
+    var c=a[0].geometry.coordinates; $("placePanel").hidden=true; setFocus([c[1],c[0]],q+"周辺");
   }).catch(function(){ $("placeInput").placeholder="地名検索に接続できませんでした"; });
 });
 
 map.on("moveend",function(){ if(!focus) return; var c=map.getCenter(); $("searchHere").hidden = km(focus,[c.lat,c.lng]) < RADIUS_KM*0.5; });
-$("searchHere").onclick=function(){ var c=map.getCenter(); setFocus([c.lat,c.lng],"地図の中心",map.getZoom()); };
+$("searchHere").onclick=function(){ var c=map.getCenter(); setFocus([c.lat,c.lng],"地図の中心"); };
 
-setInterval(function(){ if(document.visibilityState==="visible"){ setFlow(); load(); } }, REFRESH_MS);
+setInterval(function(){ if(document.visibilityState==="visible"){ refreshFlow(); load(); } }, REFRESH_MS);
 document.addEventListener("visibilitychange",function(){ if(document.visibilityState==="visible") load(); });
 
 $("rLabel").textContent=Math.round(RADIUS_KM*2/3);
-setFlow();
 setSheet(false);
 if(!key) openKey();
 locate();
