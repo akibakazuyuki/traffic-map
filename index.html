@@ -177,6 +177,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--slow);outline-o
       <input id="keyInput" type="text" placeholder="APIキーを貼り付け" autocomplete="off" spellcheck="false" aria-label="TomTom APIキー">
       <button class="btn" type="submit">接続</button>
     </form>
+    <button class="btn ghost" id="btnPaste" type="button">コピーしたキーを貼り付ける</button>
     <p>キーはこのブラウザの中にだけ保存され、外部には公開されません。</p>
     <div class="row"><button class="btn ghost" id="btnDemo" type="button">サンプルで試す</button><button class="btn ghost" id="closeKey" type="button">閉じる</button></div>
   </div>
@@ -474,6 +475,12 @@ $("btnLocate").onclick=locate;
 
 function openKey(){ $("keyInput").value=key; $("keyPanel").hidden=false; }
 $("btnKey").onclick=openKey;
+$("btnPaste").onclick=function(){
+  if(!navigator.clipboard||!navigator.clipboard.readText){ $("keyInput").focus(); return; }
+  navigator.clipboard.readText().then(function(t){ t=(t||"").trim(); $("keyInput").value=t; $("keyInput").focus();
+    $("btnPaste").textContent = t ? "貼り付けました。「接続」を押してください" : "コピーされた文字がありません";
+  }).catch(function(){ $("btnPaste").textContent="欄を長押しして「貼り付け」を選んでください"; $("keyInput").focus(); });
+};
 $("closeKey").onclick=function(){ $("keyPanel").hidden=true; };
 $("keyForm").addEventListener("submit",function(e){ e.preventDefault(); key=$("keyInput").value.trim(); ls("tt_key",key||null); demo=false; $("keyPanel").hidden=true; setFlow(); load(); });
 $("btnDemo").onclick=function(){ demo=true; $("keyPanel").hidden=true; setFocus([35.681,139.767],"東京駅（サンプル）"); };
