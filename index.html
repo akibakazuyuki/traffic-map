@@ -653,6 +653,23 @@ function match(q,n){
   for(var i=0;i<q.length-1;i++) if(n.indexOf(q.substr(i,2))>=0) hit++;
   return 2*hit/tot;
 }
+// TomTom は1秒あたりの回数制限があるので、同時に2件までにして 429 のときは1回だけ待って再試行する
+var ttBusy=0, ttWait=[];
+function ttFetch(url){
+  return new Promise(function(ok,ng){
+    function go(tries){
+      ttBusy++;
+      fetch(url).then(function(r){
+        if(r.status===429 && tries<2){ ttBusy--; next(); setTimeout(function(){ queue(function(){ go(tries+1); }); },700); return; }
+        if(!r.ok) throw new Error("TomTom "+r.status); return r.json().then(function(j){ ttBusy--; next();
+          ok((j.results||[]).map(function(x){ return {name:(x.poi&&x.poi.name)||x.address.freeformAddress, addr:x.address.freeformAddress||"", ll:[x.position.lat,x.position.lon]}; })); });
+      }).catch(function(e){ ttBusy--; next(); ng(e); });
+    }
+    queue(function(){ go(0); });
+  });
+}
+function queue(f){ if(ttBusy<2) f(); else ttWait.push(f); }
+function next(){ if(ttWait.length && ttBusy<2) ttWait.shift()(); }
 var jpN=0;
 function jsonp(url){
   return new Promise(function(ok,ng){
@@ -665,16 +682,11 @@ function jsonp(url){
 }
 function searchPlaces(q,o,typing){
   var near=o?"&lat="+o[0]+"&lon="+o[1]:"";
-  function ttq(kind,extra){
-    return fetch(tt("/search/2/"+kind+"/"+encodeURIComponent(q)+".json","language=ja-JP&countrySet=JP&limit=10"+near+extra))
-      .then(function(r){ if(!r.ok) throw new Error("TomTom "+r.status); return r.json(); })
-      .then(function(j){ return (j.results||[]).map(function(x){ return {name:(x.poi&&x.poi.name)||x.address.freeformAddress, addr:x.address.freeformAddress||"", ll:[x.position.lat,x.position.lon]}; }); });
-  }
-  // 施設名に強いPOI検索と、住所も含む通常検索を両方使う
-  var tomtom=ttq("poiSearch",typing?"&typeahead=true":"");
+  function ttq(kind,extra){ return ttFetch(tt("/search/2/"+kind+"/"+encodeURIComponent(q)+".json","language=ja-JP&countrySet=JP&limit=10"+near+extra)); }
+  var tomtom=Promise.resolve([]);
   var tomtom2=ttq("search",typing?"&typeahead=true":"");
   // Photon（OpenStreetMapのデータ、入力中の候補表示向け）
-  var photon=fetch("https://photon.komoot.io/api/?limit=8&q="+encodeURIComponent(q)+(o?"&lat="+o[0]+"&lon="+o[1]:"")+"&bbox=122,20,154,46")
+  var photon=fetch("https://photon.komoot.io/api/?lang=default&limit=8&q="+encodeURIComponent(q)+(o?"&lat="+o[0]+"&lon="+o[1]:"")+"&bbox=122,20,154,46")
     .then(function(r){ if(!r.ok) throw new Error("Photon "+r.status); return r.json(); })
     .then(function(j){ return (j.features||[]).map(function(f){ var pr=f.properties||{};
       return {name:pr.name||pr.street||"", addr:[pr.state,pr.county,pr.city,pr.district,pr.street].filter(Boolean).join(""), ll:[f.geometry.coordinates[1],f.geometry.coordinates[0]]}; })
@@ -696,11 +708,10 @@ function searchPlaces(q,o,typing){
       stems.forEach(function(st){ if(st.length>=2 && q.indexOf(st)===0 && q.length>st.length && anchors.length<3 && !anchors.some(function(x){ return km(x.ll,c.ll)<5; })) anchors.push({ll:c.ll,rest:q.slice(st.length)}); });
     });
     if(o) anchors.sort(function(x,y){ return km(o,x.ll)-km(o,y.ll); });
+    anchors=anchors.slice(0,2);
     return Promise.all(anchors.map(function(an){
       var near2="&lat="+an.ll[0]+"&lon="+an.ll[1]+"&radius=30000";
-      var jobs=[fetch(tt("/search/2/poiSearch/"+encodeURIComponent(q)+".json","language=ja-JP&countrySet=JP&limit=5"+near2+(typing?"&typeahead=true":"")))
-        .then(function(r){ if(!r.ok) throw new Error("TomTom "+r.status); return r.json(); })
-        .then(function(j){ return (j.results||[]).map(function(x){ return {name:(x.poi&&x.poi.name)||x.address.freeformAddress, addr:x.address.freeformAddress||"", ll:[x.position.lat,x.position.lon]}; }); })];
+      var jobs=[ttFetch(tt("/search/2/poiSearch/"+encodeURIComponent(q)+".json","language=ja-JP&countrySet=JP&limit=5"+near2+(typing?"&typeahead=true":"")))];
       // OpenStreetMap の施設名（地名を除いた部分）で周辺を探す。確定時のみ
       if(an.rest.length>=2){
         var ql='[out:json][timeout:15];nwr["name"~"'+an.rest.replace(/[\\"\[\]().*+?^$|{}]/g,"")+'"](around:30000,'+an.ll[0]+','+an.ll[1]+');out center 10;';
@@ -744,6 +755,7 @@ function suggest(q,typing){
       b.onclick=function(){ R.dest={name:x.name,ll:x.ll}; $("destInput").value=x.name; destSeq++; box.hidden=true; $("destInput").blur(); searchRoutes(); };
       box.appendChild(b);
     });
+    if(res.errs.length){ var er=document.createElement("button"); er.type="button"; er.disabled=true; er.innerHTML='<small>取得できなかった検索元：'+esc(res.errs.join(" / "))+'</small>'; box.appendChild(er); }
     if(!yjId){ var h=document.createElement("button"); h.type="button"; h.className="hint"; h.innerHTML='探している施設が出ないときは<small>Yahoo! の施設検索を追加（無料）</small>';
       h.onclick=function(){ $("routePanel").hidden=true; openKey(); setTimeout(function(){ $("yjInput").scrollIntoView({block:"center"}); },50); }; box.appendChild(h); }
   });
