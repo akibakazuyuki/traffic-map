@@ -88,6 +88,8 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--slow);outline-o
 .rsteps li b{min-width:58px;color:var(--muted);font-weight:700;font-size:12px;padding-top:2px}
 .rsteps li small{display:block;color:var(--muted);font-size:12px}
 .chip{border-radius:6px;padding:1px 7px;color:#fff;white-space:nowrap}
+.backpill{position:fixed;left:50%;transform:translateX(-50%);top:calc(12px + env(safe-area-inset-top,0px));z-index:1000;border:0;border-radius:22px;padding:11px 18px;
+  background:var(--sign);color:#fff;font-weight:700;font-size:15px;box-shadow:0 4px 14px rgba(0,0,0,.25)}
 .navbar{position:fixed;left:12px;right:12px;top:calc(10px + env(safe-area-inset-top,0px));z-index:1000;max-width:520px;background:var(--sign);color:#fff;
   border-radius:18px;padding:12px 16px;display:flex;align-items:center;gap:14px;box-shadow:0 4px 18px rgba(0,0,0,.25)}
 .navbar .eta b{font-size:30px;line-height:1}
@@ -242,6 +244,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--slow);outline-o
   </div>
 </div>
 
+<button type="button" class="backpill" id="backRoute" hidden>‹ ルート検索に戻る</button>
 <div class="navbar" id="navBar" hidden>
   <div class="eta"><small>到着予定</small><b class="num" id="navEta">--:--</b></div>
   <div class="nstat" id="navStat">ルートを確認中<small id="navNext"></small><small id="navSub"></small></div>
@@ -268,7 +271,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--slow);outline-o
     <div class="rcards" id="rCards"></div>
     <details class="rsteps" id="rSteps" hidden><summary id="rStepsSum">道順</summary><ol id="rStepsList"></ol></details>
     <p id="routeNote"></p>
-    <div class="row"><button class="btn" id="btnGo" type="button" hidden>このルートで出発</button><button class="btn ghost" id="closeRoute" type="button">閉じる</button></div>
+    <div class="row"><button class="btn" id="btnGo" type="button" hidden>このルートで出発</button><button class="btn ghost" id="btnViewMap" type="button" hidden>地図で確認</button><button class="btn ghost" id="closeRoute" type="button">閉じる</button></div>
   </div>
 </div>
 
@@ -308,7 +311,7 @@ var REGIONS = [
 
 function $(id){ return document.getElementById(id); }
 // 新しい版が公開されていたら自動で読み込み直す（スマホに古いページが残るのを防ぐ）
-var APP_VER="20260927-1";
+var APP_VER="20260927-2";
 (function(){ try{ fetch(location.pathname+"?check="+Date.now(),{cache:"no-store"}).then(function(r){ return r.text(); }).then(function(t){
   var m=t.match(/APP_VER="([^"]+)"/); if(m && m[1]!==APP_VER && location.search.indexOf("v="+m[1])<0) location.replace(location.pathname+"?v="+m[1]+location.hash); }).catch(function(){}); }catch(e){} })();
 function ls(k,v){ try{ if(v===undefined) return localStorage.getItem(k); if(v===null) localStorage.removeItem(k); else localStorage.setItem(k,v);}catch(e){ return null; } }
@@ -652,6 +655,12 @@ function updateEnds(){
   $("endA").textContent=R.swap?d:hereName(); $("endB").textContent=R.swap?hereName():d;
   $("destInput").placeholder=R.swap?"出発地：施設名・住所・電話番号":"施設名・住所・電話番号";
 }
+$("btnViewMap").onclick=function(){
+  $("routePanel").hidden=true; $("backRoute").hidden=false; $("searchHere").hidden=true; document.querySelector(".gauge").hidden=true;
+  var r=R.picks[R.sel]&&R.picks[R.sel].r; if(!r) return; var bb=new maplibregl.LngLatBounds(); r.pts.forEach(function(p){ bb.extend([p[1],p[0]]); });
+  map.fitBounds(bb,{padding:{top:70,bottom:(parseInt(getComputedStyle(document.documentElement).getPropertyValue("--sheet-h"))||180)+20,left:30,right:80},maxZoom:14});
+};
+$("backRoute").onclick=function(){ $("backRoute").hidden=true; document.querySelector(".gauge").hidden=false; $("routePanel").hidden=false; };
 $("btnSwap").onclick=function(){ R.swap=!R.swap; updateEnds(); if(R.dest) searchRoutes(); };
 function setHwy(h){ R.hwy=h; ls("rHwy",h?"1":"0"); $("rHwy").setAttribute("aria-pressed",h); $("rGen").setAttribute("aria-pressed",!h); if(R.dest) searchRoutes(); }
 $("rHwy").onclick=function(){ setHwy(true); }; $("rGen").onclick=function(){ setHwy(false); };
@@ -659,13 +668,13 @@ setHwy(R.hwy);
 
 $("btnRoute").onclick=function(){
   if(!key){ openKey(); return; }
-  updateEnds();
+  updateEnds(); $("backRoute").hidden=true; document.querySelector(".gauge").hidden=R.nav;
   $("routePanel").hidden=false; setTimeout(function(){ $("destInput").focus(); },50);
 };
 // 「閉じる」はルート検索をすべて終了し、地図を元に戻す
 $("closeRoute").onclick=function(){
   $("routePanel").hidden=true; clearTimeout(destTimer); destSeq++;
-  if(!R.nav){ clearRoute(); R.dest=null; R.swap=false; updateEnds(); R.routes=[]; R.picks=[]; $("rCards").innerHTML=""; $("rSteps").hidden=true; $("btnGo").hidden=true; $("routeNote").textContent="";
+  if(!R.nav){ clearRoute(); R.dest=null; R.swap=false; updateEnds(); $("btnViewMap").hidden=true; R.routes=[]; R.picks=[]; $("rCards").innerHTML=""; $("rSteps").hidden=true; $("btnGo").hidden=true; $("routeNote").textContent="";
     $("destInput").value=""; $("destSugg").hidden=true; $("destSugg").innerHTML=""; }
 };
 $("routePanel").addEventListener("click",function(e){ if(e.target===this) this.hidden=true; });
@@ -897,7 +906,7 @@ function searchRoutes(){
   var here=origin(); if(!here||!R.dest) return;
   updateEnds();
   var o=R.swap?R.dest.ll:here, dll=R.swap?here:R.dest.ll;
-  $("rCards").innerHTML='<div class="empty">ルートを探しています…</div>'; $("btnGo").hidden=true; $("routeNote").textContent=""; $("rSteps").hidden=true;
+  $("rCards").innerHTML='<div class="empty">ルートを探しています…</div>'; $("btnGo").hidden=true; $("btnViewMap").hidden=true; $("routeNote").textContent=""; $("rSteps").hidden=true;
   var reqs=[fetch(routeUrl(o,dll,"&routeType=fastest&maxAlternatives=2")).then(function(r){ if(!r.ok) throw new Error("TomTom "+r.status); return r.json();})];
   if(R.hwy) reqs.push(fetch(routeUrl(o,dll,"&routeType=fastest&avoid=tollRoads")).then(function(r){return r.json();}).catch(function(){return {};}));
   else reqs.push(fetch(routeUrl(o,dll,"&routeType=shortest")).then(function(r){return r.json();}).catch(function(){return {};}));
@@ -938,7 +947,7 @@ function drawCards(){
   $("routeNote").textContent = (R.picks.length===1?"ほかに良いルート候補はありませんでした。":"")+
     (!R.hwy && cur.mw>0.5 ? "一般道だけのルートが見つからず、一部で高速道路を通ります。" : "")+
     (cur.toll>0 ? "料金は高速道路（普通車）の目安です。首都高などの都市高速や割引は反映していません。" : "");
-  $("btnGo").hidden=!!R.swap;
+  $("btnGo").hidden=!!R.swap; $("btnViewMap").hidden=false;
   if(R.swap) $("routeNote").textContent="入れ替え中は帰り道などの確認用です。案内を始めるときは⇅で元に戻してください。"+$("routeNote").textContent;
 }
 var routeMarkers=[];
@@ -965,8 +974,10 @@ function pickRoute(i, noFit){
   main.traffic.forEach(function(t){ if(t.e>t.s) feats.push({type:"Feature",properties:{role:"traffic",color:KCOL[t.kind]},geometry:{type:"LineString",coordinates:lineOf(main.pts.slice(t.s,t.e+1))}}); });
   if(map.getSource("route")) map.getSource("route").setData({type:"FeatureCollection",features:feats});
   routeMarkers.forEach(function(m){m.remove();}); routeMarkers=[];
-  var el=document.createElement("div"); el.className="pin"; el.style.background="#2f86ff"; el.style.color="#fff"; el.textContent=R.swap?"発":"着";
-  routeMarkers.push(new maplibregl.Marker({element:el}).setLngLat([R.dest.ll[1],R.dest.ll[0]]).addTo(map));
+  // 出発・到着の印をルートの両端に置く
+  [["発","#0b7a4b",main.pts[0]],["着","#2f86ff",main.pts[main.pts.length-1]]].forEach(function(m){ if(!m[2]) return;
+    var el=document.createElement("div"); el.className="pin"; el.style.background=m[1]; el.style.color="#fff"; el.textContent=m[0];
+    routeMarkers.push(new maplibregl.Marker({element:el}).setLngLat([m[2][1],m[2][0]]).addTo(map)); });
   if(!noFit){ var bb=new maplibregl.LngLatBounds(); main.pts.forEach(function(p){ bb.extend([p[1],p[0]]); });
     map.fitBounds(bb,{padding:$("routePanel").hidden?pad():{top:40,bottom:Math.round(window.innerHeight*0.6),left:30,right:30},maxZoom:14}); }
 }
@@ -1123,7 +1134,7 @@ $("placeForm").addEventListener("submit",function(e){
   }).catch(function(){ $("placeInput").placeholder="地名検索に接続できませんでした"; });
 });
 
-map.on("moveend",function(){ if(!focus) return; var c=map.getCenter(); $("searchHere").hidden = (R&&R.nav) || !$("routePanel").hidden || km(focus,[c.lat,c.lng]) < RADIUS_KM*0.5; });
+map.on("moveend",function(){ if(!focus) return; var c=map.getCenter(); $("searchHere").hidden = (R&&R.nav) || !$("routePanel").hidden || !$("backRoute").hidden || km(focus,[c.lat,c.lng]) < RADIUS_KM*0.5; });
 $("searchHere").onclick=function(){ var c=map.getCenter(); setFocus([c.lat,c.lng],"地図の中心"); };
 
 setInterval(function(){ if(document.visibilityState==="visible"){ refreshFlow(); load(); } }, REFRESH_MS);
