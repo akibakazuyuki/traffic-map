@@ -66,6 +66,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--slow);outline-o
 .sugg button{border:0;border-bottom:1px solid var(--line);background:var(--deck);text-align:left;padding:10px 12px;font-size:14px}
 .sugg button small{display:block;color:var(--muted);font-size:12px}
 .sugg button:last-child{border-bottom:0}
+.sugg button.hint{color:var(--sign);font-weight:700;background:var(--deck2)}
 .rcards{display:flex;flex-direction:column;gap:8px}
 .rcard{display:grid;grid-template-columns:auto 1fr auto;gap:4px 12px;align-items:center;text-align:left;border:2px solid var(--line);background:var(--deck);border-radius:14px;padding:12px}
 .rcard[aria-pressed="true"]{border-color:var(--sign);background:#eef7f2}
@@ -74,12 +75,12 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--slow);outline-o
 .rcard .big{font-size:22px;font-weight:700;line-height:1.1}
 .rcard .sub{font-size:12px;color:var(--muted)}
 .rcard .warn{grid-row:span 2;display:flex;flex-direction:column;align-items:flex-end;gap:3px;font-size:12px;font-weight:700}
-.steps{margin-top:8px;border:1px solid var(--line);border-radius:12px;background:var(--deck)}
-.steps summary{padding:10px 12px;font-weight:700;font-size:14px;cursor:pointer}
-.steps ol{list-style:none;margin:0;padding:0 12px 8px;max-height:40vh;overflow:auto}
-.steps li{display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--line);font-size:14px;line-height:1.4}
-.steps li b{min-width:58px;color:var(--muted);font-weight:700;font-size:12px;padding-top:2px}
-.steps li small{display:block;color:var(--muted);font-size:12px}
+.rsteps{margin-top:8px;border:1px solid var(--line);border-radius:12px;background:var(--deck)}
+.rsteps summary{padding:10px 12px;font-weight:700;font-size:14px;cursor:pointer}
+.rsteps ol{list-style:none;margin:0;padding:0 12px 8px;max-height:40vh;overflow:auto}
+.rsteps li{display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--line);font-size:14px;line-height:1.4}
+.rsteps li b{min-width:58px;color:var(--muted);font-weight:700;font-size:12px;padding-top:2px}
+.rsteps li small{display:block;color:var(--muted);font-size:12px}
 .chip{border-radius:6px;padding:1px 7px;color:#fff;white-space:nowrap}
 .navbar{position:fixed;left:12px;right:12px;top:calc(10px + env(safe-area-inset-top,0px));z-index:1000;max-width:520px;background:var(--sign);color:#fff;
   border-radius:18px;padding:12px 16px;display:flex;align-items:center;gap:14px;box-shadow:0 4px 18px rgba(0,0,0,.25)}
@@ -220,6 +221,17 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--slow);outline-o
     </form>
     <button class="btn ghost" id="btnPaste" type="button">コピーしたキーを貼り付ける</button>
     <p>キーはこのブラウザの中にだけ保存され、外部には公開されません。</p>
+    <h3 style="margin-top:14px">施設の検索（任意・無料）</h3>
+    <p>ゴルフ場やお店など、目的地の施設を探しやすくなります。Yahoo! JAPAN の「Client ID」を使います。</p>
+    <ol class="steps">
+      <li>Yahoo! JAPAN ID でログインして <a href="https://e.developer.yahoo.co.jp/register" target="_blank" rel="noopener">アプリケーションの登録</a> を開く</li>
+      <li>「クライアントサイド（Yahoo! ID連携 v2）」を選び、アプリ名に「渋滞マップ」、サイトURLに <b>https://akibakazuyuki.github.io/</b> を入れて登録する</li>
+      <li>表示された「Client ID」をコピーして、下に貼り付ける</li>
+    </ol>
+    <form class="field" id="yjForm">
+      <input id="yjInput" type="text" placeholder="Client IDを貼り付け" autocomplete="off" spellcheck="false" aria-label="Yahoo! Client ID">
+      <button class="btn" type="submit">保存</button>
+    </form>
     <div class="row"><button class="btn ghost" id="btnDemo" type="button">サンプルで試す</button><button class="btn ghost" id="closeKey" type="button">閉じる</button></div>
   </div>
 </div>
@@ -244,7 +256,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--slow);outline-o
       <button type="button" id="rGen" aria-pressed="false">一般道のみ</button>
     </div>
     <div class="rcards" id="rCards"></div>
-    <details class="steps" id="rSteps" hidden><summary id="rStepsSum">道順</summary><ol id="rStepsList"></ol></details>
+    <details class="rsteps" id="rSteps" hidden><summary id="rStepsSum">道順</summary><ol id="rStepsList"></ol></details>
     <p id="routeNote"></p>
     <div class="row"><button class="btn" id="btnGo" type="button" hidden>このルートで出発</button><button class="btn ghost" id="closeRoute" type="button">閉じる</button></div>
   </div>
@@ -288,9 +300,11 @@ function $(id){ return document.getElementById(id); }
 function ls(k,v){ try{ if(v===undefined) return localStorage.getItem(k); if(v===null) localStorage.removeItem(k); else localStorage.setItem(k,v);}catch(e){ return null; } }
 function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];}); }
 
-var key = ls("tt_key") || "", demo = false;
+var key = ls("tt_key") || "", demo = false, yjId = ls("yj_id") || "";
 // セットアップ用リンク（#k=キー）で開いた場合はキーを保存し、アドレス欄から消す
-(function(){ var m=location.hash.match(/[#&]k=([A-Za-z0-9]{20,64})/); if(m){ key=m[1]; ls("tt_key",key); try{ history.replaceState(null,"",location.pathname); }catch(e){} } })();
+(function(){ var m=location.hash.match(/[#&]k=([A-Za-z0-9]{20,64})/), y=location.hash.match(/[#&]y=([A-Za-z0-9._-]{20,120})/);
+  if(m){ key=m[1]; ls("tt_key",key); } if(y){ yjId=y[1]; ls("yj_id",yjId); }
+  if(m||y){ try{ history.replaceState(null,"",location.pathname); }catch(e){} } })();
 var focus = null, me = null, incidents = [], seq = 0, ready = false;
 
 // ---- 地図（国土地理院ベクトルタイル：海岸線・県境・高速道路・路線名だけを描く） ----
@@ -639,6 +653,16 @@ function match(q,n){
   for(var i=0;i<q.length-1;i++) if(n.indexOf(q.substr(i,2))>=0) hit++;
   return 2*hit/tot;
 }
+var jpN=0;
+function jsonp(url){
+  return new Promise(function(ok,ng){
+    var cb="__jp"+(++jpN), sc=document.createElement("script"), t=setTimeout(function(){ done(); ng(new Error("Yahoo 応答なし")); },8000);
+    function done(){ clearTimeout(t); try{ delete window[cb]; }catch(e){ window[cb]=undefined; } sc.remove(); }
+    window[cb]=function(j){ done(); ok(j); };
+    sc.onerror=function(){ done(); ng(new Error("Yahoo 接続エラー")); };
+    sc.src=url+"&callback="+cb; document.head.appendChild(sc);
+  });
+}
 function searchPlaces(q,o,typing){
   var near=o?"&lat="+o[0]+"&lon="+o[1]:"";
   function ttq(kind,extra){
@@ -678,7 +702,7 @@ function searchPlaces(q,o,typing){
         .then(function(r){ if(!r.ok) throw new Error("TomTom "+r.status); return r.json(); })
         .then(function(j){ return (j.results||[]).map(function(x){ return {name:(x.poi&&x.poi.name)||x.address.freeformAddress, addr:x.address.freeformAddress||"", ll:[x.position.lat,x.position.lon]}; }); })];
       // OpenStreetMap の施設名（地名を除いた部分）で周辺を探す。確定時のみ
-      if(!typing && an.rest.length>=2){
+      if(an.rest.length>=2){
         var ql='[out:json][timeout:15];nwr["name"~"'+an.rest.replace(/[\\"\[\]().*+?^$|{}]/g,"")+'"](around:30000,'+an.ll[0]+','+an.ll[1]+');out center 10;';
         jobs.push(fetch("https://overpass-api.de/api/interpreter",{method:"POST",body:"data="+encodeURIComponent(ql),headers:{"Content-Type":"application/x-www-form-urlencoded"}})
           .then(function(r){ return r.json(); })
@@ -688,7 +712,10 @@ function searchPlaces(q,o,typing){
       return Promise.all(jobs.map(function(p){ return p.catch(function(){ return []; }); })).then(function(rs){ return [].concat.apply([],rs); });
     })).then(function(rs){ return [].concat.apply([],rs); });
   });
-  return Promise.all([area,tomtom,tomtom2,photon,osm,gsi].map(function(p){ return p.then(function(v){return {ok:true,v:v};},function(e){return {ok:false,e:String(e.message||e)};}); }))
+  var yahoo=yjId?jsonp("https://map.yahooapis.jp/search/local/V1/localSearch?appid="+encodeURIComponent(yjId)+"&output=json&results=10&detail=simple&query="+encodeURIComponent(q)+(o?"&lat="+o[0]+"&lon="+o[1]+"&sort=hybrid":""))
+    .then(function(j){ if(j&&j.Error) throw new Error("Yahoo "+(j.Error.Message||"エラー")); return ((j&&j.Feature)||[]).map(function(f){ var c=((f.Geometry||{}).Coordinates||"").split(",");
+      return {name:f.Name, addr:(f.Property||{}).Address||"", ll:[+c[1],+c[0]]}; }); }):Promise.resolve([]);
+  return Promise.all([yahoo,area,tomtom,tomtom2,photon,osm,gsi].map(function(p){ return p.then(function(v){return {ok:true,v:v};},function(e){return {ok:false,e:String(e.message||e)};}); }))
     .then(function(rs){
       var out=[], errs=[];
       rs.forEach(function(r){ if(!r.ok){ errs.push(r.e); return; }
@@ -717,6 +744,8 @@ function suggest(q,typing){
       b.onclick=function(){ R.dest={name:x.name,ll:x.ll}; $("destInput").value=x.name; destSeq++; box.hidden=true; $("destInput").blur(); searchRoutes(); };
       box.appendChild(b);
     });
+    if(!yjId){ var h=document.createElement("button"); h.type="button"; h.className="hint"; h.innerHTML='探している施設が出ないときは<small>Yahoo! の施設検索を追加（無料）</small>';
+      h.onclick=function(){ $("routePanel").hidden=true; openKey(); setTimeout(function(){ $("yjInput").scrollIntoView({block:"center"}); },50); }; box.appendChild(h); }
   });
 }
 $("destInput").addEventListener("input",function(){
@@ -920,7 +949,7 @@ function showNav(r, first){
   });
   if(r.steps.length){
     var h=document.createElement("div"); h.className="empty"; h.style.textAlign="left"; h.style.fontWeight="700"; h.textContent="道順"; list.appendChild(h);
-    var d=document.createElement("details"); d.className="steps"; d.open=true; d.innerHTML='<summary>'+r.steps.length+'か所</summary>'; d.appendChild($("rStepsList").cloneNode(true)); d.querySelector("ol").removeAttribute("id");
+    var d=document.createElement("details"); d.className="rsteps"; d.open=true; d.innerHTML='<summary>'+r.steps.length+'か所</summary>'; d.appendChild($("rStepsList").cloneNode(true)); d.querySelector("ol").removeAttribute("id");
     Array.prototype.forEach.call(d.querySelectorAll("li"),function(li,k){ var st=r.steps[k]; li.onclick=function(){ map.easeTo({center:[st.ll[1],st.ll[0]],zoom:16}); setSheet(false); }; });
     list.appendChild(d);
   }
@@ -935,7 +964,7 @@ $("handle").onclick=function(){ setSheet($("handle").getAttribute("aria-expanded
 $("btnRefresh").onclick=function(){ refreshFlow(); load(); };
 $("btnLocate").onclick=locate;
 
-function openKey(){ $("keyInput").value=key; $("keyPanel").hidden=false; }
+function openKey(){ $("keyInput").value=key; $("yjInput").value=yjId; $("keyPanel").hidden=false; }
 $("btnKey").onclick=openKey;
 $("btnPaste").onclick=function(){
   if(!navigator.clipboard||!navigator.clipboard.readText){ $("keyInput").focus(); return; }
@@ -944,6 +973,7 @@ $("btnPaste").onclick=function(){
   }).catch(function(){ $("btnPaste").textContent="欄を長押しして「貼り付け」を選んでください"; $("keyInput").focus(); });
 };
 $("closeKey").onclick=function(){ $("keyPanel").hidden=true; };
+$("yjForm").addEventListener("submit",function(e){ e.preventDefault(); yjId=$("yjInput").value.trim(); ls("yj_id",yjId||null); $("yjForm").querySelector("button").textContent=yjId?"保存しました":"保存"; });
 $("keyForm").addEventListener("submit",function(e){ e.preventDefault(); key=$("keyInput").value.trim(); ls("tt_key",key||null); demo=false; $("keyPanel").hidden=true; setFlow(); load(); });
 $("btnDemo").onclick=function(){ demo=true; $("keyPanel").hidden=true; setFocus([35.681,139.767],"東京駅（サンプル）"); };
 
