@@ -26,6 +26,7 @@ button{font:inherit;color:inherit;cursor:pointer;-webkit-tap-highlight-color:tra
 button:focus-visible,input:focus-visible{outline:2px solid var(--slow);outline-offset:2px}
 
 #map{position:fixed;inset:0;background:var(--asphalt)}
+html.gmap #map{position:fixed!important;inset:0;width:100%;height:100%}
 .maplibregl-ctrl-attrib{background:rgba(255,255,255,.8)!important;color:var(--muted)!important;font-size:10px}
 .maplibregl-ctrl-attrib a{color:var(--muted)!important}
 
@@ -327,7 +328,7 @@ var REGIONS = [
 
 function $(id){ return document.getElementById(id); }
 // 新しい版が公開されていたら自動で読み込み直す（スマホに古いページが残るのを防ぐ）
-var APP_VER="20260927-7";
+var APP_VER="20260927-8";
 (function(){ try{ fetch(location.pathname+"?check="+Date.now(),{cache:"no-store"}).then(function(r){ return r.text(); }).then(function(t){
   var m=t.match(/APP_VER="([^"]+)"/); if(m && m[1]!==APP_VER && location.search.indexOf("v="+m[1])<0) location.replace(location.pathname+"?v="+m[1]+location.hash); }).catch(function(){}); }catch(e){} })();
 function ls(k,v){ try{ if(v===undefined) return localStorage.getItem(k); if(v===null) localStorage.removeItem(k); else localStorage.setItem(k,v);}catch(e){ return null; } }
@@ -392,19 +393,23 @@ function GM(){
         var p=new google.maps.Polyline(o); p._f=f; L.polys.push(p); }); });
   }
   function redraw(id){ layers.forEach(function(L,i){ if(!id||L.source===id) draw(L,i); }); }
-  window.gmInit=function(){
+  function gFail(msg){ if(gmap&&gmap._ok) return; ls("g_map_fail",String(Date.now())); ls("g_map_err",String(msg||"").slice(0,200)); location.reload(); }
+  var gTimer=setTimeout(function(){ gFail("timeout"); },15000);
+  window.gmInit=async function(){ try{
+    if(!google.maps.Map && google.maps.importLibrary){ await google.maps.importLibrary("core"); await google.maps.importLibrary("maps"); }
     gmap=new google.maps.Map(document.getElementById("map"),{center:{lat:36.2,lng:138.3},zoom:5,minZoom:4,maxZoom:19,disableDefaultUI:true,
       gestureHandling:"greedy",clickableIcons:false,keyboardShortcuts:false,styles:GSTYLE,backgroundColor:"#bcd8ef"});
     var tl=new google.maps.TrafficLayer(); tl.setMap(gmap); setInterval(function(){ tl.setMap(null); tl.setMap(gmap); },5*6e4);
     gmap.addListener("idle",function(){ onMove.forEach(function(f){ f(); }); });
     var lastZ=gmap.getZoom(); gmap.addListener("zoom_changed",function(){ var z=Math.round(gmap.getZoom()); if(z!==lastZ){ lastZ=z; redraw(); } });
     var c=gCnt(); c.m2=(c.m2||0)+1; ls("g_cnt",JSON.stringify(c));
-    q.forEach(function(f){ f(); }); q=[]; onLoad.forEach(function(f){ f(); }); onLoad=[];
-  };
-  window.gm_authFailure=function(){ ls("g_map_fail",String(Date.now())); location.reload(); };
+    gmap._ok=true; clearTimeout(gTimer);
+    q.forEach(function(f){ try{ f(); }catch(e){ console.error(e); } }); q=[]; onLoad.forEach(function(f){ try{ f(); }catch(e){ console.error(e); } }); onLoad=[];
+  }catch(e){ gmap=null; gFail(e&&e.message||e); } };
+  window.gm_authFailure=function(){ gmap=null; gFail("auth"); };
   var s=document.createElement("script");
-  s.src="https://maps.googleapis.com/maps/api/js?key="+encodeURIComponent(gKey)+"&language=ja&region=JP&v=weekly&loading=async&callback=gmInit";
-  s.async=true; s.onerror=function(){ ls("g_map_fail",String(Date.now())); location.reload(); };
+  s.src="https://maps.googleapis.com/maps/api/js?key="+encodeURIComponent(gKey)+"&language=ja&region=JP&v=weekly&callback=gmInit";
+  s.async=true; s.onerror=function(){ gFail("script"); };
   document.head.appendChild(s);
 
   var facade={
@@ -448,7 +453,7 @@ function GM(){
 }
 var USE_G = gmapAllowed(), ML, map;
 if(gKey && !USE_G && (+ls("g_map_fail")||0)>Date.now()-10*6e4) setTimeout(function(){ var n=document.createElement("div"); n.className="gnote";
-  n.innerHTML='Googleの地図を読み込めませんでした。Google Cloud で <a href="https://console.cloud.google.com/apis/library/maps-backend.googleapis.com" target="_blank" rel="noopener">Maps JavaScript API</a> を有効にしてから、10分後に開き直してください。<button type="button">閉じる</button>';
+  n.innerHTML='Googleの地図を読み込めませんでした（'+String(ls("g_map_err")||"不明").replace(/[<>&]/g,"")+'）。Google Cloud で <a href="https://console.cloud.google.com/apis/library/maps-backend.googleapis.com" target="_blank" rel="noopener">Maps JavaScript API</a> を有効にしてから、10分後に開き直してください。<button type="button">閉じる</button>';
   n.querySelector("button").onclick=function(){ n.remove(); ls("g_map_fail",null); }; document.body.appendChild(n); },500);
 if(USE_G){ var G=GM(); ML=G; map=G.map; document.documentElement.classList.add("gmap"); }
 else { ML=maplibregl;
