@@ -325,7 +325,7 @@ var REGIONS = [
 
 function $(id){ return document.getElementById(id); }
 // 新しい版が公開されていたら自動で読み込み直す（スマホに古いページが残るのを防ぐ）
-var APP_VER="20260927-4";
+var APP_VER="20260927-5";
 (function(){ try{ fetch(location.pathname+"?check="+Date.now(),{cache:"no-store"}).then(function(r){ return r.text(); }).then(function(t){
   var m=t.match(/APP_VER="([^"]+)"/); if(m && m[1]!==APP_VER && location.search.indexOf("v="+m[1])<0) location.replace(location.pathname+"?v="+m[1]+location.hash); }).catch(function(){}); }catch(e){} })();
 function ls(k,v){ try{ if(v===undefined) return localStorage.getItem(k); if(v===null) localStorage.removeItem(k); else localStorage.setItem(k,v);}catch(e){ return null; } }
@@ -943,11 +943,19 @@ function gParse(rt){
   return {steps:steps,mw:0,pts:pts,cum:cum,toll:toll,yen:yen,tollKnown:!!(ti&&ti.estimatedPrice),traffic:traffic,time:time,delay:Math.max(0,time-stat),
     len:(rt.distanceMeters||0)/1000,arrive:new Date(Date.now()+time*1000),g:1};
 }
+// 無料枠を超えないよう、月ごとの利用回数をこのスマホで数える
+// 渋滞・料金付き（Enterprise）は月1,000回無料、渋滞込みのみ（Pro）は月5,000回無料。余裕をもって手前で止める
+function gCnt(){ var m=new Date().toISOString().slice(0,7), c; try{ c=JSON.parse(ls("g_cnt")||"{}"); }catch(e){ c={}; } if(c.m!==m) c={m:m,e:0,p:0}; return c; }
+function gTier(rich){ var c=gCnt(); if(rich && c.e<900) return "e"; if(c.p<4500) return "p"; return null; }
+function gOk(){ return !!gKey && !!gTier(false); }
 function gRoutes(o,d,opt){
   opt=opt||{};
+  var tier=gTier(opt.rich!==false); if(!tier) return Promise.reject(new Error("Googleの今月の無料枠の上限です"));
+  var c=gCnt(); c[tier]++; ls("g_cnt",JSON.stringify(c));
   var body={origin:{location:{latLng:{latitude:o[0],longitude:o[1]}}},destination:{location:{latLng:{latitude:d[0],longitude:d[1]}}},
     travelMode:"DRIVE",routingPreference:"TRAFFIC_AWARE",computeAlternativeRoutes:!opt.via,languageCode:"ja",units:"METRIC",
-    routeModifiers:{avoidTolls:!!opt.avoidTolls,avoidHighways:!!opt.avoidHighways},extraComputations:["TOLLS","TRAFFIC_ON_POLYLINE"]};
+    routeModifiers:{avoidTolls:!!opt.avoidTolls,avoidHighways:!!opt.avoidHighways}};
+  if(tier==="e") body.extraComputations=opt.noToll?["TRAFFIC_ON_POLYLINE"]:["TOLLS","TRAFFIC_ON_POLYLINE"];
   if(opt.via) body.intermediates=opt.via.map(function(p){ return {via:true,location:{latLng:{latitude:p[0],longitude:p[1]}}}; });
   return fetch("https://routes.googleapis.com/directions/v2:computeRoutes",{method:"POST",headers:{"Content-Type":"application/json","X-Goog-Api-Key":gKey,
     "X-Goog-FieldMask":"routes.duration,routes.staticDuration,routes.distanceMeters,routes.polyline.encodedPolyline,routes.travelAdvisory,routes.legs.steps.navigationInstruction,routes.legs.steps.distanceMeters,routes.legs.steps.startLocation"},
@@ -983,7 +991,7 @@ function searchRoutes(){
   var o=R.swap?R.dest.ll:here, dll=R.swap?here:R.dest.ll;
   $("rCards").innerHTML='<div class="empty">ルートを探しています…</div>'; $("btnGo").hidden=true; $("btnViewMap").hidden=true; $("routeNote").textContent=""; $("rSteps").hidden=true;
   var reqs;
-  if(gKey){
+  if(gOk()){
     reqs=[gRoutes(o,dll,{avoidTolls:!R.hwy,avoidHighways:!R.hwy})];
     if(R.hwy) reqs.push(gRoutes(o,dll,{avoidTolls:true}).catch(function(){ return []; }));
   }else{
@@ -1106,12 +1114,14 @@ function refreshNav(reroute){
   var o=origin(); R.lastReroute=Date.now();
   var mode=(/距離優先/.test(R.cur.k)?"&routeType=shortest":"&routeType=fastest")+(/料金優先/.test(R.cur.k)?"&avoid=tollRoads":"");
   var best, keep=Promise.resolve(null);
-  if(gKey){
-    var gopt={avoidTolls:!R.hwy||/料金優先/.test(R.cur.k),avoidHighways:!R.hwy};
+  if(gOk()){
+    // Googleは5分ごと（ルートを外れたときは1分あけて）に1回だけ計算し、今のルートの残り時間の見込みと比べる
+    if(Date.now()-(R.lastG||0) < (reroute===true?60000:290000)) return;
+    R.lastG=Date.now();
+    var gopt={avoidTolls:!R.hwy||/料金優先/.test(R.cur.k),avoidHighways:!R.hwy,noToll:true};
     best=gRoutes(o,R.dest.ll,gopt).then(function(rs){ return rs[0]||null; });
-    if(!reroute && me){ var ol=R.cur.r, rest0=ol.pts.slice(progressIdx(ol)), via=[];
-      for(var q=1;q<=20;q++){ var ix=Math.floor(rest0.length*q/21); if(rest0[ix]) via.push(rest0[ix]); }
-      if(via.length) keep=gRoutes(o,R.dest.ll,Object.assign({via:via},gopt)).then(function(rs){ return rs[0]||null; }).catch(function(){ return null; }); }
+    if(!reroute && me){ var ol=R.cur.r, di=progressIdx(ol), remKm=ol.len-(ol.cum[di]||0);
+      keep=Promise.resolve(Object.assign({},ol,{time:ol.len>0?ol.time*remKm/ol.len:ol.time,estimate:true})); }
   }else{
   best=fetch(routeUrl(o,R.dest.ll,mode)).then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
     .then(function(j){ return j.routes&&j.routes.length?parseRoute(j.routes[0]):null; });
@@ -1128,6 +1138,8 @@ function refreshNav(reroute){
     var b=js[0], c=js[1];
     if(!b&&!c) return;
     var use=c||b, why="";
+    // Google：同じ道なら最新の計算結果を使い、別の道で3分以上早くなければ今のルートのまま
+    if(c && c.estimate){ if(b && !differs(c,b)) c=b; else if(!(b && b.time<c.time-180)) c=R.cur.r; }
     if(b && c && b.time<c.time-180 && differs(c,b)){
       use=b; var t=c.traffic.filter(function(x){ return x.kind==="acc"||x.kind==="cls"||x.kind==="jam"; }).sort(function(x,y){ return x.at-y.at; })[0];
       why=(t?Math.round(t.at)+"km先で"+KNAME[t.kind]+"のため、":"")+"早いルートに切り替えました（"+fmtDur(c.time-b.time)+"短縮・"+fmtClock(b.arrive||new Date(Date.now()+b.time*1000))+"着）";
