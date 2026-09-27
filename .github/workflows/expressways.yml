@@ -1,0 +1,23 @@
+name: Build expressway data
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [scripts/build_expressways.py, .github/workflows/expressways.yml]
+  schedule:
+    - cron: "0 18 1 * *"
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - run: mkdir -p data && python3 scripts/build_expressways.py
+      - run: ls -la data && gzip -c data/expressways.json | wc -c
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898299+github-actions[bot]@users.noreply.github.com"
+          git add data/expressways.json
+          git diff --cached --quiet || (git commit -m "Update expressway data from OpenStreetMap" && git push)
