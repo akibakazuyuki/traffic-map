@@ -733,7 +733,8 @@ function searchPlaces(q,o,typing,onUpdate){
       return Promise.all(jobs.map(function(p){ return p.catch(function(){ return []; }); })).then(function(rs){ return [].concat.apply([],rs); });
     })).then(function(rs){ return [].concat.apply([],rs); });
   });
-  var yahoo=yjId?jsonp("https://map.yahooapis.jp/search/local/V1/localSearch?appid="+encodeURIComponent(yjId)+"&output=json&results=10&detail=full&query="+encodeURIComponent(q)+(o?"&lat="+o[0]+"&lon="+o[1]+"&sort=hybrid":""))
+  // 位置を渡すと Yahoo! は現在地の近くだけに絞ってしまうため渡さない（距離は手元で計算）
+  var yahoo=yjId?jsonp("https://map.yahooapis.jp/search/local/V1/localSearch?appid="+encodeURIComponent(yjId)+"&output=json&results=10&detail=full&query="+encodeURIComponent(q))
     .then(function(j){ if(j&&j.Error) throw new Error("Yahoo "+(j.Error.Message||"エラー")); return ((j&&j.Feature)||[]).map(function(f){ var c=((f.Geometry||{}).Coordinates||"").split(",");
       return {name:f.Name, addr:(f.Property||{}).Address||"", tel:(f.Property||{}).Tel1||"", src:"y", ll:[+c[1],+c[0]]}; }); }):Promise.resolve([]);
   // 住所：Yahoo! ジオコーダ（番地まで）
