@@ -197,6 +197,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--slow);outline-o
 
 
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pmtiles@3.2.1/dist/pmtiles.js"></script>
 <script>
 (function(){
 "use strict";
@@ -230,16 +231,22 @@ var MOTORWAY = ["any",["==",["to-string",["get","vt_motorway"]],"1"],["==",["get
 var ANNO_CODE = ["to-number",["get","vt_code"],0];
 var ANNO_TEXT = ["to-string",["coalesce",["get","vt_text"],["get","knj"],""]];
 var HWY_NAME = ["any"].concat(["高速","自動車道","首都高","有料","道路","バイパス","環状"].map(function(w){ return ["in",w,ANNO_TEXT]; }));
+// 国土地理院の公式デモと同じPMTiles版を使う
+var pmProtocol = new pmtiles.Protocol();
+maplibregl.addProtocol("pmtiles", pmProtocol.tile);
 var map = new maplibregl.Map({
   container:"map", center:[138.3,36.2], zoom:5, minZoom:4, maxZoom:17, attributionControl:{compact:true},
   pitchWithRotate:false, dragRotate:false, localIdeographFontFamily:'"BIZ UDPGothic","Hiragino Sans","Yu Gothic",sans-serif',
   style:{
     version:8,
-    glyphs:"https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
-    sources:{gsi:{type:"vector",tiles:["https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/{z}/{x}/{y}.pbf"],minzoom:4,maxzoom:16,
+    glyphs:"https://gsi-cyberjapan.github.io/optimal_bvmap/glyphs/{fontstack}/{range}.pbf",
+    sources:{
+      blank:{type:"raster",tiles:["https://cyberjapandata.gsi.go.jp/xyz/blank/{z}/{x}/{y}.png"],tileSize:256,minzoom:5,maxzoom:14},
+      gsi:{type:"vector",url:"pmtiles://https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/optimal_bvmap-v1.pmtiles",
       attribution:'<a href="https://github.com/gsi-cyberjapan/optimal_bvmap" target="_blank" rel="noopener">国土地理院ベクトルタイル</a>'}},
     layers:[
       {id:"bg",type:"background",paint:{"background-color":"#0d1418"}},
+      {id:"land",type:"raster",source:"blank",paint:{"raster-opacity":0.12,"raster-saturation":-1}},
       {id:"coast",type:"line",source:"gsi","source-layer":"Cstline",paint:{"line-color":"#3a4f5b","line-width":1}},
       {id:"pref",type:"line",source:"gsi","source-layer":"AdmBdry",maxzoom:10,paint:{"line-color":"#24343d","line-width":.8,"line-dasharray":[3,2]}},
       {id:"hwy-case",type:"line",source:"gsi","source-layer":"RdCL",filter:MOTORWAY,layout:{"line-cap":"round","line-join":"round"},
@@ -273,14 +280,14 @@ map.on("load",function(){
     paint:{"line-color":["get","color"],"line-width":["interpolate",["linear"],["zoom"],6,4,12,8],"line-opacity":.95}});
   // 路線名・番号・IC名
   map.addLayer({id:"lbl-no",type:"symbol",source:"gsi","source-layer":"Anno",filter:["==",ANNO_CODE,2904],
-    layout:{"text-field":ANNO_TEXT,"text-font":["Open Sans Bold"],"text-size":12,"icon-image":"shield","icon-text-fit":"both",
+    layout:{"text-field":ANNO_TEXT,"text-font":["NotoSansJP-Regular"],"text-size":12,"icon-image":"shield","icon-text-fit":"both",
       "icon-text-fit-padding":[1,3,1,3],"symbol-sort-key":1,"text-allow-overlap":false},
     paint:{"text-color":"#ffffff"}});
   map.addLayer({id:"lbl-name",type:"symbol",source:"gsi","source-layer":"Anno",filter:["all",["==",ANNO_CODE,411],HWY_NAME],
-    layout:{"text-field":ANNO_TEXT,"text-font":["Open Sans Semibold"],"text-size":["interpolate",["linear"],["zoom"],6,11,12,14],"symbol-sort-key":2},
+    layout:{"text-field":ANNO_TEXT,"text-font":["NotoSansJP-Regular"],"text-size":["interpolate",["linear"],["zoom"],6,11,12,14],"symbol-sort-key":2},
     paint:{"text-color":"#bfe8d2","text-halo-color":"#0d1418","text-halo-width":2}});
   map.addLayer({id:"lbl-ic",type:"symbol",source:"gsi","source-layer":"Anno",minzoom:9,filter:["all",[">=",ANNO_CODE,2941],["<=",ANNO_CODE,2945]],
-    layout:{"text-field":ANNO_TEXT,"text-font":["Open Sans Semibold"],"text-size":11,"symbol-sort-key":3},
+    layout:{"text-field":ANNO_TEXT,"text-font":["NotoSansJP-Regular"],"text-size":11,"symbol-sort-key":3},
     paint:{"text-color":"#93a9b4","text-halo-color":"#0d1418","text-halo-width":1.5}});
   ready=true;
   setFlow();
