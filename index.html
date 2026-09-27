@@ -52,6 +52,12 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--slow);outline-o
 .fab{width:48px;height:48px;border-radius:14px;border:1px solid var(--line);background:var(--deck);display:grid;place-items:center;font-size:11px;font-weight:700;line-height:1.1;text-align:center}
 .fab svg{width:22px;height:22px}
 .fab.on{background:var(--sign);border-color:var(--sign)}
+.count.orb b{color:#ff6fd8}
+.orbis{width:24px;height:24px;border-radius:50%;background:#fff;border:3px solid #ff2d55;display:grid;place-items:center;font:700 11px "BIZ UDPGothic",sans-serif;color:#ff2d55;box-shadow:0 2px 6px rgba(0,0,0,.5);cursor:pointer}
+.alert{position:fixed;left:12px;right:12px;top:calc(10px + env(safe-area-inset-top,0px));z-index:1500;max-width:520px;
+  background:#ff2d55;color:#fff;border-radius:18px;padding:14px 16px;display:flex;align-items:center;gap:12px;box-shadow:0 6px 20px rgba(0,0,0,.5);border:0;text-align:left;width:auto}
+.alert b{font-size:28px;line-height:1}
+.alert span{font-size:14px;font-weight:700}
 .recenter{position:fixed;left:50%;transform:translateX(-50%);z-index:1000;top:calc(132px + env(safe-area-inset-top,0px));
   background:var(--slow);color:#1a1a1a;border:0;border-radius:999px;padding:8px 16px;font-weight:700;box-shadow:0 4px 14px rgba(0,0,0,.4)}
 
@@ -139,16 +145,20 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--slow);outline-o
       <span class="count acc"><b class="num" id="cAcc">–</b>事故</span>
       <span class="count jam"><b class="num" id="cJam">–</b>渋滞</span>
       <span class="count cls"><b class="num" id="cCls">–</b>通行止・規制</span>
+      <span class="count orb"><b class="num" id="cOrb">–</b>オービス</span>
     </div>
   </div>
 </section>
 
 <button class="recenter" id="searchHere" type="button" hidden>この付近を調べる</button>
 
+<button class="alert" id="orbAlert" type="button" hidden aria-live="assertive"><b class="num" id="orbDist"></b><span id="orbText"></span></button>
+
 <div class="fabs">
   <button class="fab" id="btnLocate" type="button" aria-label="現在地に戻る">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></button>
   <button class="fab" id="btnPlace" type="button">地方</button>
+  <button class="fab on" id="btnOrb" type="button" aria-pressed="true" style="font-size:10px">オー<br>ビス</button>
   <button class="fab" id="btnKey" type="button">設定</button>
 </div>
 
@@ -327,7 +337,7 @@ function drawFocus(animate){
   map.fitBounds(b,{padding:pad(),animate:animate});
 }
 function setFocus(ll,label){
-  focus=ll;
+  focus=ll; loadOrbis(ll);
   $("where").textContent=label+"から半径"+RADIUS_KM+"km";
   drawFocus(true);
   $("searchHere").hidden=true;
@@ -351,7 +361,7 @@ function noLocation(){
   if(!focus) setFocus([35.68,139.77],"東京周辺");
 }
 if(navigator.geolocation){
-  navigator.geolocation.watchPosition(function(p){ me=[p.coords.latitude,p.coords.longitude]; if(meMarker) placeMe(); },function(){}, {enableHighAccuracy:true,maximumAge:30000});
+  navigator.geolocation.watchPosition(function(p){ me=[p.coords.latitude,p.coords.longitude]; if(meMarker) placeMe(); checkOrbis(p.coords); },function(){}, {enableHighAccuracy:true,maximumAge:30000});
 }
 
 // ---- 事故・渋滞データ ----
@@ -371,6 +381,57 @@ function coordsOf(inc){
   return pts.map(function(x){return [x[1],x[0]];});
 }
 function nearest(pts,ll){ var best=pts[0],bd=1e9; pts.forEach(function(p){ var d=km(ll,p); if(d<bd){bd=d;best=p;} }); return {p:best,d:bd}; }
+
+// ---- オービス（固定式速度取締機。OpenStreetMapの登録データ） ----
+var orbOn = ls("orbOn")!=="0", orbs=[], orbMarkers=[], orbCenter=null, orbWarned={};
+function loadOrbis(c){
+  orbCenter=c;
+  var dLat=RADIUS_KM/111, dLon=RADIUS_KM/(111*Math.cos(c[0]*Math.PI/180));
+  var bb=[c[0]-dLat,c[1]-dLon,c[0]+dLat,c[1]+dLon].map(function(v){return v.toFixed(4);}).join(",");
+  var q='[out:json][timeout:25];(node["highway"="speed_camera"]('+bb+');node["enforcement"="maxspeed"]('+bb+');relation["enforcement"="maxspeed"]('+bb+'););out center tags;';
+  fetch("https://overpass-api.de/api/interpreter",{method:"POST",body:"data="+encodeURIComponent(q),headers:{"Content-Type":"application/x-www-form-urlencoded"}})
+    .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
+    .then(function(j){
+      var seen={};
+      orbs=(j.elements||[]).map(function(e){
+        var lat=e.lat!=null?e.lat:(e.center&&e.center.lat), lon=e.lon!=null?e.lon:(e.center&&e.center.lon);
+        if(lat==null) return null;
+        var k=lat.toFixed(4)+","+lon.toFixed(4); if(seen[k]) return null; seen[k]=1;
+        var t=e.tags||{};
+        return {id:e.type+e.id, ll:[lat,lon], max:t.maxspeed||"", name:t.name||t.description||""};
+      }).filter(Boolean);
+      drawOrbis(); checkOrbis();
+    }).catch(function(){ $("cOrb").textContent="?"; });
+}
+function drawOrbis(){
+  orbMarkers.forEach(function(m){ m.remove(); }); orbMarkers=[];
+  $("cOrb").textContent = orbOn ? orbs.length : "–";
+  if(!orbOn) return;
+  orbs.forEach(function(o){
+    var el=document.createElement("div"); el.className="orbis"; el.textContent="オ";
+    el.onclick=function(ev){ ev.stopPropagation(); if(popup) popup.remove();
+      popup=new maplibregl.Popup({offset:14}).setLngLat([o.ll[1],o.ll[0]]).setHTML("<b>オービス</b>"+(o.max?"　制限 "+esc(o.max)+"km/h":"")+(o.name?"<br>"+esc(o.name):"")+(me?"<br>現在地から "+km(me,o.ll).toFixed(1)+"km":"")).addTo(map); };
+    orbMarkers.push(new maplibregl.Marker({element:el}).setLngLat([o.ll[1],o.ll[0]]).addTo(map));
+  });
+}
+function checkOrbis(c){
+  if(!orbOn || !me) { $("orbAlert").hidden=true; return; }
+  if(orbCenter && km(orbCenter,me) > RADIUS_KM*0.5) loadOrbis(me);
+  var hd = (c && c.heading!=null && !isNaN(c.heading) && c.speed>3) ? c.heading : null, best=null, bd=1e9;
+  orbs.forEach(function(o){
+    var d=km(me,o.ll); if(d>1.0) return;
+    if(hd!=null){ var b=(bearing(me,o.ll)*180/Math.PI+360)%360, diff=Math.abs(((b-hd)+540)%360-180); if(diff>50) return; }
+    if(d<bd){ bd=d; best=o; }
+  });
+  if(!best){ $("orbAlert").hidden=true; return; }
+  $("orbDist").textContent = Math.round(bd*1000/10)*10+"m";
+  $("orbText").textContent = "先にオービス"+(best.max?"（制限"+best.max+"km/h）":"");
+  $("orbAlert").hidden=false;
+  if(!orbWarned[best.id]){ orbWarned[best.id]=1; try{ navigator.vibrate && navigator.vibrate([300,150,300]); }catch(e){} }
+}
+$("orbAlert").onclick=function(){ $("orbAlert").hidden=true; };
+$("btnOrb").onclick=function(){ orbOn=!orbOn; ls("orbOn",orbOn?"1":"0"); this.classList.toggle("on",orbOn); this.setAttribute("aria-pressed",orbOn); drawOrbis(); checkOrbis(); };
+$("btnOrb").classList.toggle("on",orbOn); $("btnOrb").setAttribute("aria-pressed",orbOn);
 
 function load(){
   if(!focus) return;
