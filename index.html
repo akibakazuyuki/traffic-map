@@ -938,12 +938,37 @@ function notify(text){
   clearTimeout(R.alertT); R.alertT=setTimeout(function(){ $("orbAlert").hidden=true; $("orbAlert").style.background=""; },12000);
 }
 function progressIdx(r){ var o=me; if(!o) return 0; var bi=0,bd=1e9; for(var i=0;i<r.pts.length;i+=Math.max(1,Math.floor(r.pts.length/400))){ var d=km(o,r.pts[i]); if(d<bd){bd=d;bi=i;} } return bi; }
+// 1分ごと：今のルートを最新の渋滞で計算し直し、同時に最適ルートも探す。
+// 最適ルートが3分以上早く、別の道を通るなら切り替えて理由と一緒に知らせる
 function refreshNav(reroute){
   if(!R.nav) return;
   var o=origin(); R.lastReroute=Date.now();
-  fetch(routeUrl(o,R.dest.ll,(/距離優先/.test(R.cur.k)?"&routeType=shortest":"&routeType=fastest")+(/料金優先/.test(R.cur.k)?"&avoid=tollRoads":""))).then(function(r){return r.json();})
-  .then(function(j){ if(!j.routes||!j.routes.length) return; var r=parseRoute(j.routes[0]); R.cur={k:R.cur.k,r:r}; R.picks[R.sel]=R.cur; showNav(r,false); if(reroute===true) notify("ルートを外れたため、新しいルートに切り替えました"); })
-  .catch(function(){ $("navSub").textContent="更新できませんでした（通信を確認）"; });
+  var mode=(/距離優先/.test(R.cur.k)?"&routeType=shortest":"&routeType=fastest")+(/料金優先/.test(R.cur.k)?"&avoid=tollRoads":"");
+  var best=fetch(routeUrl(o,R.dest.ll,mode)).then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); });
+  var keep=Promise.resolve(null);
+  if(!reroute && me){
+    var old=R.cur.r, bi=progressIdx(old), rest=old.pts.slice(bi), st=Math.max(1,Math.ceil(rest.length/150)), sp=[];
+    for(var k=0;k<rest.length;k+=st) sp.push({latitude:rest[k][0],longitude:rest[k][1]});
+    sp.push({latitude:rest[rest.length-1][0],longitude:rest[rest.length-1][1]});
+    if(sp.length>=2) keep=fetch(routeUrl(o,R.dest.ll,mode+"&minDeviationDistance=0&minDeviationTime=0"),
+      {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({supportingPoints:sp})})
+      .then(function(r){ return r.ok?r.json():null; }).catch(function(){ return null; });
+  }
+  Promise.all([best,keep]).then(function(js){
+    var b=js[0].routes&&js[0].routes.length?parseRoute(js[0].routes[0]):null;
+    var c=js[1]&&js[1].routes&&js[1].routes.length?parseRoute(js[1].routes[0]):null;
+    if(!b&&!c) return;
+    var use=c||b, why="";
+    if(b && c && b.time<c.time-180 && differs(c,b)){
+      use=b; var t=c.traffic.filter(function(x){ return x.kind==="acc"||x.kind==="cls"||x.kind==="jam"; }).sort(function(x,y){ return x.at-y.at; })[0];
+      why=(t?Math.round(t.at)+"km先で"+KNAME[t.kind]+"のため、":"")+"早いルートに切り替えました（"+fmtDur(c.time-b.time)+"短縮・"+fmtClock(b.arrive||new Date(Date.now()+b.time*1000))+"着）";
+    }
+    R.cur={k:R.cur.k,r:use}; R.picks[R.sel]=R.cur;
+    if(why){ R.skipNotify=true; R.seen={}; }
+    showNav(use,false); R.skipNotify=false;
+    if(reroute===true) notify("ルートを外れたため、新しいルートに切り替えました");
+    else if(why) notify(why);
+  }).catch(function(){ $("navSub").textContent="更新できませんでした（通信を確認）"; });
 }
 // 走行中：次の曲がり角を表示し、ルートから外れたらすぐ再探索する
 function navTick(c){
@@ -956,6 +981,14 @@ function navTick(c){
   var acc=(c&&c.accuracy)||50;
   if(bd>Math.max(0.15,acc/1000*1.5) && Date.now()-(R.lastReroute||0)>15000) refreshNav(true);
 }
+// 新しいルートが今のルートと別の道を通るか（新ルートの点の2割以上が今のルートから300m以上離れている）
+function differs(a,b){
+  var n=0, far=0, st=Math.max(1,Math.floor(b.pts.length/60));
+  for(var i=0;i<b.pts.length;i+=st){ n++; var near=false;
+    for(var k=0;k<a.pts.length;k+=Math.max(1,Math.floor(a.pts.length/600))){ if(km(a.pts[k],b.pts[i])<0.3){ near=true; break; } }
+    if(!near) far++; }
+  return n>0 && far/n>0.2;
+}
 function showNav(r, first){
   var arr=r.arrive||new Date(Date.now()+r.time*1000);
   $("navEta").textContent=fmtClock(arr);
@@ -967,7 +1000,8 @@ function showNav(r, first){
   r.traffic.forEach(function(t){ if(t.kind==="works"||t.kind==="etc") return;
     var p=r.pts[t.s], id=t.kind+"_"+p[0].toFixed(2)+"_"+p[1].toFixed(2);
     if(!R.seen[id]){ R.seen[id]=1; if(!first) fresh.push(t); } });
-  if(fresh.length){ var t=fresh.sort(function(a,b){return a.at-b.at;})[0]; notify(Math.round(t.at)+"km先で"+KNAME[t.kind]+"が発生"+(t.delay>=60?"（+"+fmtDur(t.delay)+"）":"")); }
+  if(R.skipNotify){}
+  else if(fresh.length){ var t=fresh.sort(function(a,b){return a.at-b.at;})[0]; notify(Math.round(t.at)+"km先で"+KNAME[t.kind]+"が発生"+(t.delay>=60?"（+"+fmtDur(t.delay)+"）":"")); }
   else if(!first && R.lastDelay!=null && r.delay-R.lastDelay>=300) notify("渋滞が悪化し、到着が"+fmtDur(r.delay-R.lastDelay)+"遅れる見込みです");
   R.lastDelay=r.delay;
   pickRoute(R.sel, !first); navTick();
