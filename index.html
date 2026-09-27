@@ -112,6 +112,7 @@ html.gmap #map{position:fixed!important;inset:0;width:100%;height:100%}
 .sheet-head{display:flex;justify-content:space-between;align-items:center;width:100%;gap:8px}
 .sheet-head h2{margin:0;font-size:15px}
 .legend{display:flex;align-items:center;gap:4px 6px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+html:not(.gmap) .lg-ok{display:none!important}
 .legend i{display:inline-block;width:14px;height:4px;border-radius:2px;margin-left:4px}
 .seg button{border:0;background:none;padding:4px 10px;border-radius:8px;font-size:12px;color:var(--muted)}
 .seg button[aria-pressed="true"]{background:var(--sign);color:var(--sign-ink);font-weight:700}
@@ -211,7 +212,7 @@ html.gmap #map{position:fixed!important;inset:0;width:100%;height:100%}
     <span class="sheet-head"><h2 id="listTitle">高速道路の事故・渋滞（近い順）</h2><span class="num" id="updated" style="color:var(--muted);font-size:12px"></span></span>
   </button>
   <div style="padding:0 12px 8px;display:flex;justify-content:space-between;align-items:center;gap:8px">
-    <div class="legend" aria-label="凡例"><i style="background:#f39a1e"></i>混雑<i style="background:#e8302a"></i>渋滞<i style="background:var(--closed)"></i>通行止</div>
+    <div class="legend" aria-label="凡例"><i class="lg-ok" style="background:#1fb45a"></i><span class="lg-ok">順調</span><i style="background:#f39a1e"></i>混雑<i style="background:#e8302a"></i>渋滞<i style="background:var(--closed)"></i>通行止</div>
     <button class="btn ghost" id="btnRefresh" type="button" style="padding:6px 12px;font-size:13px">更新</button>
   </div>
   <div class="list" id="list"></div>
@@ -328,7 +329,7 @@ var REGIONS = [
 
 function $(id){ return document.getElementById(id); }
 // 新しい版が公開されていたら自動で読み込み直す（スマホに古いページが残るのを防ぐ）
-var APP_VER="20260927-8";
+var APP_VER="20260927-9";
 (function(){ try{ fetch(location.pathname+"?check="+Date.now(),{cache:"no-store"}).then(function(r){ return r.text(); }).then(function(t){
   var m=t.match(/APP_VER="([^"]+)"/); if(m && m[1]!==APP_VER && location.search.indexOf("v="+m[1])<0) location.replace(location.pathname+"?v="+m[1]+location.hash); }).catch(function(){}); }catch(e){} })();
 function ls(k,v){ try{ if(v===undefined) return localStorage.getItem(k); if(v===null) localStorage.removeItem(k); else localStorage.setItem(k,v);}catch(e){ return null; } }
