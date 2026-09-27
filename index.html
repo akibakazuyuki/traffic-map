@@ -329,7 +329,7 @@ var REGIONS = [
 
 function $(id){ return document.getElementById(id); }
 // 新しい版が公開されていたら自動で読み込み直す（スマホに古いページが残るのを防ぐ）
-var APP_VER="20260927-9";
+var APP_VER="20260927-10";
 (function(){ try{ fetch(location.pathname+"?check="+Date.now(),{cache:"no-store"}).then(function(r){ return r.text(); }).then(function(t){
   var m=t.match(/APP_VER="([^"]+)"/); if(m && m[1]!==APP_VER && location.search.indexOf("v="+m[1])<0) location.replace(location.pathname+"?v="+m[1]+location.hash); }).catch(function(){}); }catch(e){} })();
 function ls(k,v){ try{ if(v===undefined) return localStorage.getItem(k); if(v===null) localStorage.removeItem(k); else localStorage.setItem(k,v);}catch(e){ return null; } }
@@ -657,7 +657,7 @@ function overpass(q,start){
 }
 function drawOrbis(){
   orbMarkers.forEach(function(m){ m.remove(); }); orbMarkers=[];
-  $("cOrb").textContent = orbOn ? orbs.length : "–";
+  $("cOrb").textContent = orbOn ? orbs.length : "OFF";
   if(!orbOn) return;
   orbs.forEach(function(o){
     var el=document.createElement("div"); el.className="orbis"; el.textContent="オ";
