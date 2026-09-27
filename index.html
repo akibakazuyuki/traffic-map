@@ -733,9 +733,9 @@ function searchPlaces(q,o,typing,onUpdate){
       return Promise.all(jobs.map(function(p){ return p.catch(function(){ return []; }); })).then(function(rs){ return [].concat.apply([],rs); });
     })).then(function(rs){ return [].concat.apply([],rs); });
   });
-  var yahoo=yjId?jsonp("https://map.yahooapis.jp/search/local/V1/localSearch?appid="+encodeURIComponent(yjId)+"&output=json&results=10&detail=standard&query="+encodeURIComponent(q)+(o?"&lat="+o[0]+"&lon="+o[1]+"&sort=hybrid":""))
+  var yahoo=yjId?jsonp("https://map.yahooapis.jp/search/local/V1/localSearch?appid="+encodeURIComponent(yjId)+"&output=json&results=10&detail=full&query="+encodeURIComponent(q)+(o?"&lat="+o[0]+"&lon="+o[1]+"&sort=hybrid":""))
     .then(function(j){ if(j&&j.Error) throw new Error("Yahoo "+(j.Error.Message||"エラー")); return ((j&&j.Feature)||[]).map(function(f){ var c=((f.Geometry||{}).Coordinates||"").split(",");
-      return {name:f.Name, addr:(f.Property||{}).Address||"", tel:(f.Property||{}).Tel1||"", ll:[+c[1],+c[0]]}; }); }):Promise.resolve([]);
+      return {name:f.Name, addr:(f.Property||{}).Address||"", tel:(f.Property||{}).Tel1||"", src:"y", ll:[+c[1],+c[0]]}; }); }):Promise.resolve([]);
   // 住所：Yahoo! ジオコーダ（番地まで）
   var yaddr=(yjId && !ph && isAddr(q))?jsonp("https://map.yahooapis.jp/geocode/V1/geoCoder?appid="+encodeURIComponent(yjId)+"&output=json&results=3&query="+encodeURIComponent(q))
     .then(function(j){ return ((j&&j.Feature)||[]).map(function(f){ var c=((f.Geometry||{}).Coordinates||"").split(","); return {name:f.Name, addr:"住所", ll:[+c[1],+c[0]]}; }); }):Promise.resolve([]);
@@ -745,13 +745,15 @@ function searchPlaces(q,o,typing,onUpdate){
       var out=[], errs=[];
       got.forEach(function(r){ if(!r) return; if(!r.ok){ errs.push(r.e); return; }
         r.v.forEach(function(c){ if(!c.ll||isNaN(c.ll[0])) return;
-          if(ph){ if(telDigits(c.tel)!==ph) return; if(!c.telShown){ c.telShown=1; c.addr=c.tel+"・"+c.addr; } }
+          if(ph){ var td=telDigits(c.tel); c.telExact=(td===ph); c.telNear=!c.telExact && (td ? td.slice(0,6)===ph.slice(0,6) : c.src==="y");
+            if(!c.telExact && !c.telNear) return; if(!c.telShown && c.tel){ c.telShown=1; c.addr=c.tel+"・"+c.addr; } }
           if(out.some(function(d){ return km(d.ll,c.ll)<0.3; })) return; out.push(c); }); });
       if(o) out.forEach(function(c){ c.d=km(o,c.ll); });
       // 入力した文字に近い名前ほど上に。同じくらいなら近い順
       var nq=norm(q);
       out.forEach(function(c){ c.m=Math.max(match(nq,norm(c.name)), match(nq,norm(c.addr))*0.95); });
       out.sort(function(a,b){ return (b.m-a.m) || ((a.d||0)-(b.d||0)); });
+      if(ph){ var ex=out.filter(function(c){ return c.telExact; }); if(ex.length) out=ex; else out.forEach(function(c){ c.approx=1; }); }
       return {list:out.slice(0,12), errs:errs, pending:left>0};
   }
   return new Promise(function(done){
@@ -774,7 +776,8 @@ function suggest(q,typing){
     if(my!==destSeq) return;
     if(res.pending && !res.list.length) return;
     box.innerHTML="";
-    if(!res.list.length && telDigits(q)){ box.innerHTML='<button type="button" disabled>この電話番号の施設は見つかりませんでした'+(yjId?'':'<small>電話番号での検索は Yahoo! の施設検索を追加すると確実になります</small>')+'</button>'; if(!yjId){ addYjHint(); } return; }
+    if(!res.list.length && telDigits(q)){ box.innerHTML='<button type="button" disabled>この電話番号の施設は見つかりませんでした'+(yjId?'<small>施設名や住所でも試してください'+(res.errs.length?'（'+esc(res.errs.join(" / "))+'）':'')+'</small>':'<small>電話番号での検索は Yahoo! の施設検索を追加すると確実になります</small>')+'</button>'; if(!yjId){ addYjHint(); } return; }
+    if(res.list.length && res.list[0].approx){ var ap=document.createElement("button"); ap.type="button"; ap.disabled=true; ap.innerHTML='<small>番号が完全に一致する施設はありませんでした。近い候補：</small>'; box.appendChild(ap); }
     if(!res.list.length){ box.innerHTML='<button type="button" disabled>候補が見つかりません。続けて入力するか、施設名・住所で試してください'+(res.errs.length?'<small>'+esc(res.errs.join(" / "))+'</small>':'')+'</button>'; return; }
     res.list.forEach(function(x){
       var b=document.createElement("button"); b.type="button";
