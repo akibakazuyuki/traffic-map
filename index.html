@@ -54,7 +54,7 @@ html.gmap #map{position:fixed!important;inset:0;width:100%;height:100%}
 .fab svg{width:22px;height:22px}
 .fab.on{background:var(--sign);border-color:var(--sign);color:#fff}
 .count.orb b{color:#ff6fd8}
-.orbis{width:24px;height:24px;border-radius:50%;background:#fff;border:3px solid #ff2d55;display:grid;place-items:center;font:700 11px "BIZ UDPGothic",sans-serif;color:#ff2d55;box-shadow:0 2px 6px rgba(0,0,0,.5);cursor:pointer}
+.orbis{width:28px;height:28px;border-radius:50%;background:#fff;border:3px solid #ff2d55;display:grid;place-items:center;font:700 11px "BIZ UDPGothic",sans-serif;color:#ff2d55;box-shadow:0 2px 6px rgba(0,0,0,.5);cursor:pointer}
 .alert{position:fixed;left:12px;right:12px;top:calc(10px + env(safe-area-inset-top,0px));z-index:1500;max-width:520px;
   background:#ff2d55;color:#fff;border-radius:18px;padding:14px 16px;display:flex;align-items:center;gap:12px;box-shadow:0 6px 20px rgba(0,0,0,.5);border:0;text-align:left;width:auto}
 .alert b{font-size:28px;line-height:1}
@@ -329,7 +329,7 @@ var REGIONS = [
 
 function $(id){ return document.getElementById(id); }
 // 新しい版が公開されていたら自動で読み込み直す（スマホに古いページが残るのを防ぐ）
-var APP_VER="20260927-10";
+var APP_VER="20260927-11";
 (function(){ try{ fetch(location.pathname+"?check="+Date.now(),{cache:"no-store"}).then(function(r){ return r.text(); }).then(function(t){
   var m=t.match(/APP_VER="([^"]+)"/); if(m && m[1]!==APP_VER && location.search.indexOf("v="+m[1])<0) location.replace(location.pathname+"?v="+m[1]+location.hash); }).catch(function(){}); }catch(e){} })();
 function ls(k,v){ try{ if(v===undefined) return localStorage.getItem(k); if(v===null) localStorage.removeItem(k); else localStorage.setItem(k,v);}catch(e){ return null; } }
@@ -655,12 +655,13 @@ function overpass(q,start){
   }
   return go(0);
 }
+var CAM_SVG='<svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path fill="#ff2d55" d="M9 4h6l1.5 2H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3.5z"/><circle cx="12" cy="13" r="4.2" fill="#fff"/><circle cx="12" cy="13" r="2.4" fill="#ff2d55"/></svg>';
 function drawOrbis(){
   orbMarkers.forEach(function(m){ m.remove(); }); orbMarkers=[];
   $("cOrb").textContent = orbOn ? orbs.length : "OFF";
   if(!orbOn) return;
   orbs.forEach(function(o){
-    var el=document.createElement("div"); el.className="orbis"; el.textContent="オ";
+    var el=document.createElement("div"); el.className="orbis"; el.setAttribute("aria-label","オービス"); el.innerHTML=CAM_SVG;
     el.onclick=function(ev){ ev.stopPropagation(); if(popup) popup.remove();
       popup=new ML.Popup({offset:14}).setLngLat([o.ll[1],o.ll[0]]).setHTML("<b>オービス</b>"+(o.max?"　制限 "+esc(o.max)+"km/h":"")+(o.name?"<br>"+esc(o.name):"")+(me?"<br>現在地から "+km(me,o.ll).toFixed(1)+"km":"")).addTo(map); };
     orbMarkers.push(new ML.Marker({element:el}).setLngLat([o.ll[1],o.ll[0]]).addTo(map));
