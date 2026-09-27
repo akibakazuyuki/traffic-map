@@ -229,7 +229,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--slow);outline-o
     <h3 id="routeTitle">ルート検索</h3>
     <p id="routeFrom">出発地：現在地</p>
     <form class="field" id="routeForm">
-      <input id="destInput" type="search" placeholder="目的地（例：御殿場プレミアム・アウトレット）" aria-label="目的地" autocomplete="off">
+      <input id="destInput" type="search" placeholder="目的地を入力（例：御殿場アウトレット）" aria-label="目的地" autocomplete="off">
       <button class="btn" type="submit">検索</button>
     </form>
     <div class="sugg" id="destSugg" hidden></div>
@@ -616,22 +616,53 @@ $("btnRoute").onclick=function(){
 $("closeRoute").onclick=function(){ $("routePanel").hidden=true; };
 $("routePanel").addEventListener("click",function(e){ if(e.target===this) this.hidden=true; });
 
-$("routeForm").addEventListener("submit",function(e){
-  e.preventDefault(); var q=$("destInput").value.trim(); if(!q) return;
-  var o=origin(), box=$("destSugg"); box.hidden=false; box.innerHTML='<button type="button" disabled>検索中…</button>';
-  fetch(tt("/search/2/search/"+encodeURIComponent(q)+".json","language=ja-JP&countrySet=JP&limit=6"+(o?"&lat="+o[0]+"&lon="+o[1]:"")))
-  .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
-  .then(function(j){
-    var res=j.results||[]; box.innerHTML="";
-    if(!res.length){ box.innerHTML='<button type="button" disabled>見つかりませんでした。別の言い方で試してください</button>'; return; }
-    res.forEach(function(x){
-      var name=(x.poi&&x.poi.name)||x.address.freeformAddress, addr=x.address.freeformAddress||"";
+// 目的地検索：TomTom・OpenStreetMap・国土地理院をまとめて探し、候補を一覧にする
+function searchPlaces(q,o,typing){
+  var near=o?"&lat="+o[0]+"&lon="+o[1]:"";
+  var tomtom=fetch(tt("/search/2/search/"+encodeURIComponent(q)+".json","language=ja-JP&countrySet=JP&limit=8"+near+(typing?"&typeahead=true":"")))
+    .then(function(r){ if(!r.ok) throw new Error("TomTom "+r.status); return r.json(); })
+    .then(function(j){ return (j.results||[]).map(function(x){ return {name:(x.poi&&x.poi.name)||x.address.freeformAddress, addr:x.address.freeformAddress||"", ll:[x.position.lat,x.position.lon]}; }); });
+  // OpenStreetMapの検索は入力中の自動検索が禁止されているため、確定時だけ使う
+  var osm=typing?Promise.resolve([]):fetch("https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=jp&accept-language=ja&limit=8&q="+encodeURIComponent(q))
+    .then(function(r){ if(!r.ok) throw new Error("OSM "+r.status); return r.json(); })
+    .then(function(a){ return a.map(function(x){ var parts=(x.display_name||"").split(",").map(function(t){return t.trim();});
+      return {name:x.name||parts[0], addr:parts.slice(1).reverse().filter(function(t){return !/^\d{3}-?\d{4}$/.test(t)&&t!=="日本";}).join(""), ll:[+x.lat,+x.lon]}; }); });
+  var gsi=fetch("https://msearch.gsi.go.jp/address-search/AddressSearch?q="+encodeURIComponent(q))
+    .then(function(r){ return r.json(); })
+    .then(function(a){ return (a||[]).slice(0,5).map(function(x){ return {name:x.properties.title, addr:"住所・地名", ll:[x.geometry.coordinates[1],x.geometry.coordinates[0]]}; }); });
+  return Promise.all([tomtom,osm,gsi].map(function(p){ return p.then(function(v){return {ok:true,v:v};},function(e){return {ok:false,e:String(e.message||e)};}); }))
+    .then(function(rs){
+      var out=[], errs=[];
+      rs.forEach(function(r){ if(!r.ok){ errs.push(r.e); return; }
+        r.v.forEach(function(c){ if(!c.ll||isNaN(c.ll[0])) return;
+          if(out.some(function(d){ return km(d.ll,c.ll)<0.3; })) return; out.push(c); }); });
+      if(o) out.forEach(function(c){ c.d=km(o,c.ll); });
+      return {list:out.slice(0,12), errs:errs};
+    });
+}
+var destSeq=0, destTimer=null;
+function suggest(q,typing){
+  var my=++destSeq, o=origin(), box=$("destSugg");
+  if(q.length<2){ box.hidden=true; return; }
+  box.hidden=false; if(!box.children.length || !typing) box.innerHTML='<button type="button" disabled>「'+esc(q)+'」の候補を探しています…</button>';
+  searchPlaces(q,o,typing).then(function(res){
+    if(my!==destSeq) return;
+    box.innerHTML="";
+    if(!res.list.length){ box.innerHTML='<button type="button" disabled>候補が見つかりません。続けて入力するか、施設名・住所で試してください'+(res.errs.length?'<small>'+esc(res.errs.join(" / "))+'</small>':'')+'</button>'; return; }
+    res.list.forEach(function(x){
       var b=document.createElement("button"); b.type="button";
-      b.innerHTML=esc(name)+'<small>'+esc(addr)+(o?"・約"+Math.round(km(o,[x.position.lat,x.position.lon]))+"km":"")+'</small>';
-      b.onclick=function(){ R.dest={name:name,ll:[x.position.lat,x.position.lon]}; $("destInput").value=name; box.hidden=true; searchRoutes(); };
+      b.innerHTML=esc(x.name)+'<small>'+esc(x.addr)+(x.d!=null?'・約'+Math.round(x.d)+'km':'')+'</small>';
+      b.onclick=function(){ R.dest={name:x.name,ll:x.ll}; $("destInput").value=x.name; destSeq++; box.hidden=true; $("destInput").blur(); searchRoutes(); };
       box.appendChild(b);
     });
-  }).catch(function(){ box.innerHTML='<button type="button" disabled>目的地を検索できませんでした</button>'; });
+  });
+}
+$("destInput").addEventListener("input",function(){
+  var q=this.value.trim(); clearTimeout(destTimer);
+  destTimer=setTimeout(function(){ suggest(q,true); },350);
+});
+$("routeForm").addEventListener("submit",function(e){
+  e.preventDefault(); clearTimeout(destTimer); suggest($("destInput").value.trim(),false);
 });
 
 function routeUrl(o,d,extra){
@@ -660,7 +691,7 @@ function sig(r){ return Math.round(r.len*10)+"_"+Math.round(r.time/60); }
 function searchRoutes(){
   var o=origin(); if(!o||!R.dest) return;
   $("rCards").innerHTML='<div class="empty">ルートを探しています…</div>'; $("btnGo").hidden=true; $("routeNote").textContent="";
-  var reqs=[fetch(routeUrl(o,R.dest.ll,"&routeType=fastest&maxAlternatives=2")).then(function(r){return r.json();})];
+  var reqs=[fetch(routeUrl(o,R.dest.ll,"&routeType=fastest&maxAlternatives=2")).then(function(r){ if(!r.ok) throw new Error("TomTom "+r.status); return r.json();})];
   if(R.hwy) reqs.push(fetch(routeUrl(o,R.dest.ll,"&routeType=fastest&avoid=tollRoads")).then(function(r){return r.json();}).catch(function(){return {};}));
   else reqs.push(fetch(routeUrl(o,R.dest.ll,"&routeType=shortest")).then(function(r){return r.json();}).catch(function(){return {};}));
   Promise.all(reqs).then(function(js){
@@ -674,7 +705,7 @@ function searchRoutes(){
     var best=all.slice().sort(function(a,b){ return score(a)-score(b); })[0];
     R.picks=[{k:"おすすめ",r:best},{k:"時間優先",r:byTime},{k:R.hwy?"料金優先":"距離優先",r:cheap}];
     R.sel=0; drawCards(); pickRoute(0);
-  }).catch(function(){ $("rCards").innerHTML='<div class="empty">ルートが見つかりませんでした。目的地や道路の設定を変えて試してください。</div>'; });
+  }).catch(function(e){ $("rCards").innerHTML='<div class="empty">ルートを計算できませんでした（'+esc(e.message||"")+'）。'+(/40[13]/.test(e.message||"")?'TomTomのキーでRouting APIが使えない可能性があります。':'目的地や道路の設定を変えて試してください。')+'</div>'; });
 }
 function score(r){ var bad=r.traffic.filter(function(t){return t.kind==="acc"||t.kind==="cls";}).length; return r.time/60 + r.yen/40 + bad*10; }
 function trafficCount(r){ var n={jam:0,acc:0,cls:0}; r.traffic.forEach(function(t){ if(t.kind==="jam") n.jam++; else if(t.kind==="acc") n.acc++; else if(t.kind==="cls") n.cls++; }); return n; }
