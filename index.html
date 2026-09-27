@@ -640,7 +640,12 @@ $("btnRoute").onclick=function(){
   $("routeFrom").textContent = "出発地："+(me?"現在地":(focus?"地図で選んだ場所":"現在地（取得中）"));
   $("routePanel").hidden=false; setTimeout(function(){ $("destInput").focus(); },50);
 };
-$("closeRoute").onclick=function(){ $("routePanel").hidden=true; };
+// 「閉じる」はルート検索をすべて終了し、地図を元に戻す
+$("closeRoute").onclick=function(){
+  $("routePanel").hidden=true; clearTimeout(destTimer); destSeq++;
+  if(!R.nav){ clearRoute(); R.dest=null; R.routes=[]; R.picks=[]; $("rCards").innerHTML=""; $("rSteps").hidden=true; $("btnGo").hidden=true; $("routeNote").textContent="";
+    $("destInput").value=""; $("destSugg").hidden=true; $("destSugg").innerHTML=""; }
+};
 $("routePanel").addEventListener("click",function(e){ if(e.target===this) this.hidden=true; });
 
 // 目的地検索：TomTom・OpenStreetMap・国土地理院をまとめて探し、候補を一覧にする
@@ -680,7 +685,7 @@ function jsonp(url){
     sc.src=url+"&callback="+cb; document.head.appendChild(sc);
   });
 }
-function searchPlaces(q,o,typing){
+function searchPlaces(q,o,typing,onUpdate){
   var near=o?"&lat="+o[0]+"&lon="+o[1]:"";
   function ttq(kind,extra){ return ttFetch(tt("/search/2/"+kind+"/"+encodeURIComponent(q)+".json","language=ja-JP&countrySet=JP&limit=10"+near+extra)); }
   var tomtom=Promise.resolve([]);
@@ -726,10 +731,11 @@ function searchPlaces(q,o,typing){
   var yahoo=yjId?jsonp("https://map.yahooapis.jp/search/local/V1/localSearch?appid="+encodeURIComponent(yjId)+"&output=json&results=10&detail=simple&query="+encodeURIComponent(q)+(o?"&lat="+o[0]+"&lon="+o[1]+"&sort=hybrid":""))
     .then(function(j){ if(j&&j.Error) throw new Error("Yahoo "+(j.Error.Message||"エラー")); return ((j&&j.Feature)||[]).map(function(f){ var c=((f.Geometry||{}).Coordinates||"").split(",");
       return {name:f.Name, addr:(f.Property||{}).Address||"", ll:[+c[1],+c[0]]}; }); }):Promise.resolve([]);
-  return Promise.all([yahoo,area,tomtom,tomtom2,photon,osm,gsi].map(function(p){ return p.then(function(v){return {ok:true,v:v};},function(e){return {ok:false,e:String(e.message||e)};}); }))
-    .then(function(rs){
+  // 返ってきた検索元から順に一覧を更新する。遅い検索元は8秒で打ち切る
+  var srcs=[yahoo,area,tomtom,tomtom2,photon,osm,gsi], got=srcs.map(function(){ return null; }), left=srcs.length;
+  function merge(){
       var out=[], errs=[];
-      rs.forEach(function(r){ if(!r.ok){ errs.push(r.e); return; }
+      got.forEach(function(r){ if(!r) return; if(!r.ok){ errs.push(r.e); return; }
         r.v.forEach(function(c){ if(!c.ll||isNaN(c.ll[0])) return;
           if(out.some(function(d){ return km(d.ll,c.ll)<0.3; })) return; out.push(c); }); });
       if(o) out.forEach(function(c){ c.d=km(o,c.ll); });
@@ -737,28 +743,38 @@ function searchPlaces(q,o,typing){
       var nq=norm(q);
       out.forEach(function(c){ c.m=match(nq,norm(c.name)); });
       out.sort(function(a,b){ return (b.m-a.m) || ((a.d||0)-(b.d||0)); });
-      return {list:out.slice(0,12), errs:errs};
+      return {list:out.slice(0,12), errs:errs, pending:left>0};
+  }
+  return new Promise(function(done){
+    srcs.forEach(function(p,i){
+      var to=new Promise(function(_,ng){ setTimeout(function(){ ng(new Error("応答が遅いため省略")); },8000); });
+      Promise.race([p,to]).then(function(v){ return {ok:true,v:v}; },function(e){ return {ok:false,e:String(e.message||e)}; })
+        .then(function(r){ got[i]=r; left--; var m=merge(); if(left>0){ if(onUpdate) onUpdate(m); } else done(m); });
     });
+  });
 }
 var destSeq=0, destTimer=null;
 function suggest(q,typing){
   var my=++destSeq, o=origin(), box=$("destSugg");
   if(q.length<2){ box.hidden=true; return; }
   box.hidden=false; if(!box.children.length || !typing) box.innerHTML='<button type="button" disabled>「'+esc(q)+'」の候補を探しています…</button>';
-  searchPlaces(q,o,typing).then(function(res){
+  function show(res){
     if(my!==destSeq) return;
+    if(res.pending && !res.list.length) return;
     box.innerHTML="";
     if(!res.list.length){ box.innerHTML='<button type="button" disabled>候補が見つかりません。続けて入力するか、施設名・住所で試してください'+(res.errs.length?'<small>'+esc(res.errs.join(" / "))+'</small>':'')+'</button>'; return; }
     res.list.forEach(function(x){
       var b=document.createElement("button"); b.type="button";
       b.innerHTML=esc(x.name)+'<small>'+esc(x.addr)+(x.d!=null?'・約'+Math.round(x.d)+'km':'')+'</small>';
-      b.onclick=function(){ R.dest={name:x.name,ll:x.ll}; $("destInput").value=x.name; destSeq++; box.hidden=true; $("destInput").blur(); searchRoutes(); };
+      b.onclick=function(){ clearTimeout(destTimer); R.dest={name:x.name,ll:x.ll}; $("destInput").value=x.name; destSeq++; box.hidden=true; $("destInput").blur(); searchRoutes(); };
       box.appendChild(b);
     });
+    if(res.pending){ var pd=document.createElement("button"); pd.type="button"; pd.disabled=true; pd.innerHTML='<small>ほかの候補も探しています…</small>'; box.appendChild(pd); return; }
     if(res.errs.length){ var er=document.createElement("button"); er.type="button"; er.disabled=true; er.innerHTML='<small>取得できなかった検索元：'+esc(res.errs.join(" / "))+'</small>'; box.appendChild(er); }
     if(!yjId){ var h=document.createElement("button"); h.type="button"; h.className="hint"; h.innerHTML='探している施設が出ないときは<small>Yahoo! の施設検索を追加（無料）</small>';
       h.onclick=function(){ $("routePanel").hidden=true; openKey(); setTimeout(function(){ $("yjInput").scrollIntoView({block:"center"}); },50); }; box.appendChild(h); }
-  });
+  }
+  searchPlaces(q,o,typing,show).then(show);
 }
 $("destInput").addEventListener("input",function(){
   var q=this.value.trim(); clearTimeout(destTimer);
@@ -771,14 +787,15 @@ $("routeForm").addEventListener("submit",function(e){
 function routeUrl(o,d,extra){
   var av = R.hwy ? "" : "&avoid=tollRoads&avoid=motorways";
   return tt("/routing/1/calculateRoute/"+o[0]+","+o[1]+":"+d[0]+","+d[1]+"/json",
-    "traffic=true&travelMode=car&language=ja-JP&instructionsType=text&sectionType=traffic&sectionType=tollRoad&computeTravelTimeFor=all"+av+(extra||""));
+    "traffic=true&travelMode=car&language=ja-JP&instructionsType=text&sectionType=traffic&sectionType=tollRoad&sectionType=motorway&computeTravelTimeFor=all"+av+(extra||""));
 }
 function parseRoute(rt){
   var pts=[]; (rt.legs||[]).forEach(function(l){ (l.points||[]).forEach(function(p){ pts.push([p.latitude,p.longitude]); }); });
   var cum=[0]; for(var i=1;i<pts.length;i++) cum.push(cum[i-1]+km(pts[i-1],pts[i]));
-  var toll=0, traffic=[];
+  var toll=0, mw=0, traffic=[];
   (rt.sections||[]).forEach(function(sc){
     if(sc.sectionType==="TOLL_ROAD") toll+=cum[sc.endPointIndex]-cum[sc.startPointIndex];
+    if(sc.sectionType==="MOTORWAY") mw+=cum[sc.endPointIndex]-cum[sc.startPointIndex];
     if(sc.sectionType==="TRAFFIC"){
       var causes=((sc.tec||{}).causes||[]).map(function(c){return c.mainCauseCode;});
       var kind = causes.indexOf(2)>=0 ? "acc" : sc.simpleCategory==="ROAD_CLOSURE" ? "cls" : sc.simpleCategory==="ROAD_WORK" ? "works" : sc.simpleCategory==="JAM" ? "jam" : "etc";
@@ -790,7 +807,9 @@ function parseRoute(rt){
     var road=(g.roadNumbers||[]).join("・")||g.street||g.signpostText||"";
     return {off:(g.routeOffsetInMeters||0)/1000, msg:g.message||(MAN[g.maneuver]||"道なり")+(road?"（"+road+"）":""), road:road, man:g.maneuver||"", ll:[g.point.latitude,g.point.longitude]}; });
   var sm=rt.summary||{};
-  return {steps:steps,pts:pts,cum:cum,toll:toll,yen:tollYen(toll),traffic:traffic,time:sm.travelTimeInSeconds,delay:sm.trafficDelayInSeconds||0,
+  // 日本の高速は基本的に有料なので、有料区間の情報が無いときは高速区間の距離で料金を見積もる
+  if(toll<0.5 && mw>0) toll=mw;
+  return {steps:steps,mw:mw,pts:pts,cum:cum,toll:toll,yen:tollYen(toll),traffic:traffic,time:sm.travelTimeInSeconds,delay:sm.trafficDelayInSeconds||0,
     len:(sm.lengthInMeters||0)/1000,arrive:sm.arrivalTime?new Date(sm.arrivalTime):null};
 }
 var MAN={DEPART:"出発",ARRIVE:"目的地に到着",ARRIVE_LEFT:"目的地に到着（左側）",ARRIVE_RIGHT:"目的地に到着（右側）",TURN_LEFT:"左折",TURN_RIGHT:"右折",
@@ -830,7 +849,9 @@ function searchRoutes(){
     var cheap = R.hwy ? all.slice().sort(function(a,b){return (a.yen-b.yen)||(a.time-b.time);})[0] : all.slice().sort(function(a,b){return a.len-b.len;})[0];
     // おすすめ：時間と料金の釣り合い（1分あたり40円で換算）＋渋滞・事故の少なさ
     var best=all.slice().sort(function(a,b){ return score(a)-score(b); })[0];
-    R.picks=[{k:"おすすめ",r:best},{k:"時間優先",r:byTime},{k:R.hwy?"料金優先":"距離優先",r:cheap}];
+    var raw=[{k:"おすすめ",r:best},{k:"時間優先",r:byTime},{k:R.hwy?"料金優先":"距離優先",r:cheap}];
+    // 同じルートは1枚にまとめる
+    R.picks=[]; raw.forEach(function(p){ var same=R.picks.filter(function(x){ return x.r===p.r; })[0]; if(same) same.also=(same.also||[]).concat(p.k); else R.picks.push({k:p.k,r:p.r}); });
     R.sel=0; drawCards(); pickRoute(0);
   }).catch(function(e){ $("rCards").innerHTML='<div class="empty">ルートを計算できませんでした（'+esc(e.message||"")+'）。'+(/40[13]/.test(e.message||"")?'TomTomのキーでRouting APIが使えない可能性があります。':'目的地や道路の設定を変えて試してください。')+'</div>'; });
 }
@@ -848,11 +869,14 @@ function drawCards(){
         (n.cls?'<span class="chip" style="background:var(--closed)">通行止 '+n.cls+'</span>':'')+
         (!n.acc&&!n.jam&&!n.cls?'<span class="chip" style="background:var(--ok)">順調</span>':'')+'</span>'+
       '<span class="sub num">'+fmtClock(arr)+'着・'+r.len.toFixed(1)+'km'+(r.delay>=60?'・渋滞で+'+fmtDur(r.delay):'')+
-        (R.hwy?(r.toll>0?'・有料'+Math.round(r.toll)+'km 約'+r.yen.toLocaleString()+'円':'・有料道路なし'):'')+'</span>';
+        (r.toll>0?'・高速'+Math.round(r.toll)+'km 約'+r.yen.toLocaleString()+'円':'・高速道路なし')+(p.also?'<br>'+p.also.join("・")+'でも同じルート':'')+'</span>';
     b.onclick=function(){ R.sel=i; drawCards(); pickRoute(i); };
     box.appendChild(b);
   });
-  $("routeNote").textContent = R.hwy ? "料金は高速道路（普通車）の目安です。首都高などの都市高速や割引は反映していません。" : "";
+  var cur=R.picks[R.sel].r;
+  $("routeNote").textContent = (R.picks.length===1?"ほかに良いルート候補はありませんでした。":"")+
+    (!R.hwy && cur.mw>0.5 ? "一般道だけのルートが見つからず、一部で高速道路を通ります。" : "")+
+    (cur.toll>0 ? "料金は高速道路（普通車）の目安です。首都高などの都市高速や割引は反映していません。" : "");
   $("btnGo").hidden=false;
 }
 var routeMarkers=[];
@@ -917,7 +941,7 @@ function progressIdx(r){ var o=me; if(!o) return 0; var bi=0,bd=1e9; for(var i=0
 function refreshNav(reroute){
   if(!R.nav) return;
   var o=origin(); R.lastReroute=Date.now();
-  fetch(routeUrl(o,R.dest.ll,(R.cur.k==="距離優先"?"&routeType=shortest":"&routeType=fastest")+(R.cur.k==="料金優先"?"&avoid=tollRoads":""))).then(function(r){return r.json();})
+  fetch(routeUrl(o,R.dest.ll,(/距離優先/.test(R.cur.k)?"&routeType=shortest":"&routeType=fastest")+(/料金優先/.test(R.cur.k)?"&avoid=tollRoads":""))).then(function(r){return r.json();})
   .then(function(j){ if(!j.routes||!j.routes.length) return; var r=parseRoute(j.routes[0]); R.cur={k:R.cur.k,r:r}; R.picks[R.sel]=R.cur; showNav(r,false); if(reroute===true) notify("ルートを外れたため、新しいルートに切り替えました"); })
   .catch(function(){ $("navSub").textContent="更新できませんでした（通信を確認）"; });
 }
