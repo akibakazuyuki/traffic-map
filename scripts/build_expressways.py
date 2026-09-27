@@ -1,31 +1,8 @@
 #!/usr/bin/env python3
 """全国の高速道路・自動車専用道路の線と名前、IC・JCT・SA・PAの位置を
-OpenStreetMap（Overpass API）から集めて data/expressways.json に書き出す。
+OpenStreetMap（Geofabrikの日本データをosmiumで抜き出したもの）から集めて data/expressways.json に書き出す。
 地図 © OpenStreetMap contributors（ODbL）。"""
-import json, math, sys, time, urllib.parse, urllib.request
-
-MIRRORS = ["https://overpass-api.de/api/interpreter",
-           "https://overpass.kumi.systems/api/interpreter",
-           "https://overpass.private.coffee/api/interpreter"]
-# (南, 西, 北, 東) 地方ごとに分けて取得する（1回の取得が重くなりすぎないように）
-REGIONS = [(41.3, 139.3, 45.6, 146.0), (36.8, 139.0, 41.6, 142.2), (34.8, 138.3, 37.2, 141.0),
-           (34.5, 135.9, 38.6, 139.9), (33.4, 134.2, 36.0, 136.9), (32.7, 130.8, 36.0, 134.9),
-           (30.9, 129.4, 34.3, 132.1), (24.0, 122.9, 27.2, 131.4)]
-
-def overpass(q):
-    last = None
-    for attempt in range(6):
-        url = MIRRORS[attempt % len(MIRRORS)]
-        try:
-            req = urllib.request.Request(url, data=urllib.parse.urlencode({"data": q}).encode(),
-                                         headers={"User-Agent": "traffic-map-builder/1.0"})
-            with urllib.request.urlopen(req, timeout=600) as r:
-                return json.load(r)
-        except Exception as e:  # 混雑時は別のサーバーで再試行
-            last = e
-            print("retry", url, e, file=sys.stderr)
-            time.sleep(20)
-    raise last
+import json, math, sys, time
 
 def dist_m(a, b):
     k = math.cos(math.radians((a[1] + b[1]) / 2))
@@ -58,22 +35,37 @@ def simplify(pts, tol):
     return [p for p, f in zip(pts, keep) if f]
 
 def main():
-    ways, nodes = {}, {}
-    for s, w, n, e in REGIONS:
-        bb = f"{s},{w},{n},{e}"
-        q = (f'[out:json][timeout:500][maxsize:1073741824];'
-             f'(way["highway"="motorway"]({bb});way["highway"="trunk"]["motorroad"="yes"]({bb}););out tags geom;')
-        for el in overpass(q).get("elements", []):
-            ways[el["id"]] = el
-        q = (f'[out:json][timeout:300];(node["highway"="motorway_junction"]({bb});'
-             f'nwr["highway"~"^(services|rest_area)$"]({bb}););out tags center;')
-        for el in overpass(q).get("elements", []):
-            nodes[el["type"] + str(el["id"])] = el
-        print("region", bb, len(ways), len(nodes), file=sys.stderr)
+    # osmium export の結果（1行に1つのGeoJSON）を読む。Overpassは全国分だと時間切れになるため使わない
+    ways, nodes = [], []
+    with open(sys.argv[1], encoding="utf-8") as f:
+        for line in f:
+            line = line.strip().lstrip("\x1e")
+            if not line:
+                continue
+            ft = json.loads(line)
+            t = ft.get("properties") or {}
+            g = ft.get("geometry") or {}
+            hw = t.get("highway")
+            if g.get("type") == "LineString" and (hw == "motorway" or (hw == "trunk" and t.get("motorroad") == "yes")):
+                ways.append({"tags": t, "geometry": [{"lon": c[0], "lat": c[1]} for c in g["coordinates"]]})
+            elif hw in ("motorway_junction", "services", "rest_area"):
+                c = g.get("coordinates")
+                if g.get("type") == "Point":
+                    lon, lat = c
+                elif g.get("type") == "Polygon":
+                    ring = c[0]; lon = sum(p[0] for p in ring) / len(ring); lat = sum(p[1] for p in ring) / len(ring)
+                elif g.get("type") == "MultiPolygon":
+                    ring = c[0][0]; lon = sum(p[0] for p in ring) / len(ring); lat = sum(p[1] for p in ring) / len(ring)
+                elif g.get("type") == "LineString":
+                    lon, lat = c[len(c) // 2]
+                else:
+                    continue
+                nodes.append({"tags": t, "lat": lat, "lon": lon})
+    print("ways", len(ways), "nodes", len(nodes), file=sys.stderr)
 
     # 同じ道路（名前・路線番号が同じ）で端がつながる区間を1本の線にまとめる
     groups = {}
-    for el in ways.values():
+    for el in ways:
         t = el.get("tags", {})
         geom = [(round(g["lon"], 6), round(g["lat"], 6)) for g in el.get("geometry", []) if g]
         if len(geom) < 2:
@@ -113,7 +105,7 @@ def main():
             lines.append({"n": key[0], "r": key[1], "t": key[2], "c": flat})
 
     pts = []
-    for el in nodes.values():
+    for el in nodes:
         t = el.get("tags", {})
         name = t.get("name", "")
         if not name:

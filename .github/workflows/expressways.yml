@@ -11,10 +11,16 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - run: mkdir -p data && python3 scripts/build_expressways.py
+      - run: sudo apt-get update -q && sudo apt-get install -y -q osmium-tool
+      - run: curl -sSfL -o japan.osm.pbf https://download.geofabrik.de/asia/japan-latest.osm.pbf && ls -la japan.osm.pbf
+      - run: |
+          osmium tags-filter japan.osm.pbf w/highway=motorway,trunk n/highway=motorway_junction nwr/highway=services,rest_area -o hw.osm.pbf
+          osmium export hw.osm.pbf -f geojsonseq --geometry-types=point,linestring,polygon -o hw.geojsonseq
+          ls -la hw.osm.pbf hw.geojsonseq
+      - run: mkdir -p data && python3 scripts/build_expressways.py hw.geojsonseq
       - run: ls -la data && gzip -c data/expressways.json | wc -c
       - run: |
           git config user.name "github-actions[bot]"
