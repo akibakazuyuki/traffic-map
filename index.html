@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#ffffff">
 <title>ハイウェイ・レーダー</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -89,6 +89,8 @@ html.gmap #map{position:fixed!important;inset:0;width:100%;height:100%}
 .rsteps li b{min-width:58px;color:var(--muted);font-weight:700;font-size:12px;padding-top:2px}
 .rsteps li small{display:block;color:var(--muted);font-size:12px}
 .chip{border-radius:6px;padding:1px 7px;color:#fff;white-space:nowrap}
+html.gmap #map{touch-action:none}
+html.lowz .orbis{display:none}
 .gnote{position:fixed;left:12px;right:12px;bottom:calc(var(--sheet-h,168px) + 12px);z-index:1100;background:#fff;border-radius:14px;padding:12px 14px;font-size:13px;line-height:1.5;box-shadow:0 4px 16px rgba(0,0,0,.25)}
 .gnote button{display:block;margin-top:8px;border:0;background:var(--deck2);border-radius:8px;padding:6px 12px;font-weight:700}
 .backpill{position:fixed;left:50%;transform:translateX(-50%);top:calc(12px + env(safe-area-inset-top,0px));z-index:1000;border:0;border-radius:22px;padding:11px 18px;
@@ -329,7 +331,7 @@ var REGIONS = [
 
 function $(id){ return document.getElementById(id); }
 // 新しい版が公開されていたら自動で読み込み直す（スマホに古いページが残るのを防ぐ）
-var APP_VER="20260927-11";
+var APP_VER="20260927-12";
 (function(){ try{ fetch(location.pathname+"?check="+Date.now(),{cache:"no-store"}).then(function(r){ return r.text(); }).then(function(t){
   var m=t.match(/APP_VER="([^"]+)"/); if(m && m[1]!==APP_VER && location.search.indexOf("v="+m[1])<0) location.replace(location.pathname+"?v="+m[1]+location.hash); }).catch(function(){}); }catch(e){} })();
 function ls(k,v){ try{ if(v===undefined) return localStorage.getItem(k); if(v===null) localStorage.removeItem(k); else localStorage.setItem(k,v);}catch(e){ return null; } }
@@ -429,13 +431,14 @@ function GM(){
       if(b.pts.length<1) return; gmap.fitBounds(bb,(opt&&opt.padding)||0);
       if(opt&&opt.maxZoom) google.maps.event.addListenerOnce(gmap,"idle",function(){ if(gmap.getZoom()>opt.maxZoom) gmap.setZoom(opt.maxZoom); }); }); },
     easeTo:function(o){ whenReady(function(){ if(o.center) gmap.panTo({lat:o.center[1],lng:o.center[0]}); if(o.zoom) gmap.setZoom(o.zoom); }); },
+    getZoom:function(){ return gmap?gmap.getZoom():5; },
     getCenter:function(){ var c=gmap&&gmap.getCenter(); return c?{lat:c.lat(),lng:c.lng()}:{lat:36.2,lng:138.3}; }
   };
   function Marker(o){ this.el=o.element; this.anchor=o.anchor||"center"; this.off=o.offset||[0,0]; this.ll=null; this.ov=null; }
   Marker.prototype.setLngLat=function(a){ this.ll={lat:a[1],lng:a[0]}; if(this.ov) this.ov.draw(); return this; };
   Marker.prototype.addTo=function(){ var me=this; whenReady(function(){
       var ov=new google.maps.OverlayView();
-      ov.onAdd=function(){ me.el.style.position="absolute"; google.maps.OverlayView.preventMapHitsAndGesturesFrom(me.el); this.getPanes().overlayMouseTarget.appendChild(me.el); };
+      ov.onAdd=function(){ me.el.style.position="absolute"; this.getPanes().overlayMouseTarget.appendChild(me.el); };
       ov.draw=function(){ var pr=this.getProjection(); if(!pr||!me.ll) return; var p=pr.fromLatLngToDivPixel(new google.maps.LatLng(me.ll.lat,me.ll.lng));
         var w=me.el.offsetWidth, h=me.el.offsetHeight;
         me.el.style.left=(p.x-(me.anchor==="left"?0:w/2)+me.off[0])+"px"; me.el.style.top=(p.y-h/2+me.off[1])+"px"; };
@@ -656,6 +659,8 @@ function overpass(q,start){
   return go(0);
 }
 var CAM_SVG='<svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path fill="#ff2d55" d="M9 4h6l1.5 2H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3.5z"/><circle cx="12" cy="13" r="4.2" fill="#fff"/><circle cx="12" cy="13" r="2.4" fill="#ff2d55"/></svg>';
+function orbZoom(){ document.documentElement.classList.toggle("lowz",map.getZoom()<9); }
+map.on("moveend",orbZoom);
 function drawOrbis(){
   orbMarkers.forEach(function(m){ m.remove(); }); orbMarkers=[];
   $("cOrb").textContent = orbOn ? orbs.length : "OFF";
