@@ -114,7 +114,6 @@ html.lowz .orbis{display:none}
 .sheet-head{display:flex;justify-content:space-between;align-items:center;width:100%;gap:8px}
 .sheet-head h2{margin:0;font-size:15px}
 .legend{display:flex;align-items:center;gap:4px 6px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
-html:not(.gmap) .lg-hw{display:none!important}
 html.gmap #lgCong{background:#f2dc1a!important}
 .legend i{display:inline-block;width:14px;height:4px;border-radius:2px;margin-left:4px}
 .seg button{border:0;background:none;padding:4px 10px;border-radius:8px;font-size:12px;color:var(--muted)}
@@ -215,7 +214,7 @@ html.gmap #lgCong{background:#f2dc1a!important}
     <span class="sheet-head"><h2 id="listTitle">高速道路の事故・渋滞（近い順）</h2><span class="num" id="updated" style="color:var(--muted);font-size:12px"></span></span>
   </button>
   <div style="padding:0 12px 8px;display:flex;justify-content:space-between;align-items:center;gap:8px">
-    <div class="legend" aria-label="凡例"><i class="lg-hw" style="background:#2f6fd6"></i><span class="lg-hw">高速道路</span><i id="lgCong" style="background:#f39a1e"></i>混雑<i style="background:#e8302a"></i>渋滞<i style="background:var(--closed)"></i>通行止</div>
+    <div class="legend" aria-label="凡例"><i id="lgCong" style="background:#f39a1e"></i>混雑<i style="background:#e8302a"></i>渋滞<i style="background:var(--closed)"></i>通行止</div>
     <button class="btn ghost" id="btnRefresh" type="button" style="padding:6px 12px;font-size:13px">更新</button>
   </div>
   <div class="list" id="list"></div>
@@ -332,7 +331,7 @@ var REGIONS = [
 
 function $(id){ return document.getElementById(id); }
 // 新しい版が公開されていたら自動で読み込み直す（スマホに古いページが残るのを防ぐ）
-var APP_VER="20260927-13";
+var APP_VER="20260927-14";
 (function(){ try{ fetch(location.pathname+"?check="+Date.now(),{cache:"no-store"}).then(function(r){ return r.text(); }).then(function(t){
   var m=t.match(/APP_VER="([^"]+)"/); if(m && m[1]!==APP_VER && location.search.indexOf("v="+m[1])<0) location.replace(location.pathname+"?v="+m[1]+location.hash); }).catch(function(){}); }catch(e){} })();
 function ls(k,v){ try{ if(v===undefined) return localStorage.getItem(k); if(v===null) localStorage.removeItem(k); else localStorage.setItem(k,v);}catch(e){ return null; } }
@@ -362,9 +361,10 @@ var GSTYLE=[
   {featureType:"road.arterial",elementType:"geometry.fill",stylers:[{color:"#ffffff"}]},
   {featureType:"road.arterial",elementType:"geometry.stroke",stylers:[{color:"#d9d2c2"}]},
   {featureType:"road.highway",elementType:"geometry.fill",stylers:[{color:"#ffffff"}]},
-  {featureType:"road.highway.controlled_access",elementType:"geometry.fill",stylers:[{color:"#2f6fd6"}]},
-  {featureType:"road.highway.controlled_access",elementType:"geometry.stroke",stylers:[{color:"#173f80"},{weight:1.2}]},
-  {featureType:"road.highway",elementType:"geometry.stroke",stylers:[{color:"#27323a"},{weight:1.6}]},
+
+  {featureType:"road.highway",elementType:"geometry.stroke",stylers:[{color:"#cfc6b3"},{weight:1}]},
+  {featureType:"road.highway.controlled_access",elementType:"geometry.fill",stylers:[{color:"#ffffff"}]},
+  {featureType:"road.highway.controlled_access",elementType:"geometry.stroke",stylers:[{color:"#27323a"},{weight:1.8}]},
   {featureType:"road.highway",elementType:"labels.text.fill",stylers:[{color:"#0b5a36"}]},
   {featureType:"road.highway",elementType:"labels.text.stroke",stylers:[{color:"#ffffff"},{weight:4}]},
   {featureType:"administrative.province",elementType:"geometry.stroke",stylers:[{color:"#a99f8a"},{weight:1}]}
@@ -413,6 +413,9 @@ function GM(){
       addDelay(); setInterval(addDelay,5*6e4); }
     else { var tl=new google.maps.TrafficLayer(); tl.setMap(gmap); setInterval(function(){ tl.setMap(null); tl.setMap(gmap); },5*6e4); }
     gmap.addListener("idle",function(){ onMove.forEach(function(f){ f(); }); });
+    var GLOW=GSTYLE.concat([{featureType:"road.arterial",stylers:[{visibility:"off"}]},{featureType:"road.local",stylers:[{visibility:"off"}]}]), lowSt=null;
+    var roadDetail=function(){ var lo=gmap.getZoom()<12; if(lo!==lowSt){ lowSt=lo; gmap.setOptions({styles:lo?GLOW:GSTYLE}); } };
+    roadDetail(); gmap.addListener("zoom_changed",roadDetail);
     var lastZ=gmap.getZoom(); gmap.addListener("zoom_changed",function(){ var z=Math.round(gmap.getZoom()); if(z!==lastZ){ lastZ=z; redraw(); } });
     var c=gCnt(); c.m2=(c.m2||0)+1; ls("g_cnt",JSON.stringify(c));
     gmap._ok=true; clearTimeout(gTimer);
@@ -684,6 +687,7 @@ function drawOrbis(){
 function checkOrbis(c){
   if(!orbOn || !me) { $("orbAlert").hidden=true; return; }
   if(orbCenter && km(orbCenter,me) > RADIUS_KM*0.5) loadOrbis(me);
+  if(R.nav && R.cur && R.cur.r.orbs) return;
   var hd = (c && c.heading!=null && !isNaN(c.heading) && c.speed>3) ? c.heading : null, best=null, bd=1e9;
   orbs.forEach(function(o){
     var d=km(me,o.ll); if(d>1.0) return;
@@ -1210,7 +1214,7 @@ function drawCards(){
       '<span class="warn">'+(n.acc?'<span class="chip" style="background:var(--accident)">事故 '+n.acc+'</span>':'')+
         (n.jam?'<span class="chip" style="background:var(--jam)">渋滞 '+n.jam+'</span>':'')+
         (n.cls?'<span class="chip" style="background:var(--closed)">通行止 '+n.cls+'</span>':'')+
-        (!n.acc&&!n.jam&&!n.cls?'<span class="chip" style="background:var(--ok)">順調</span>':'')+'</span>'+
+        (!n.acc&&!n.jam&&!n.cls?'<span class="chip" style="background:var(--ok)">順調</span>':'')+(r.orbs&&r.orbs.length?'<span class="chip" style="background:#ff2d55">オービス '+r.orbs.length+'</span>':'')+'</span>'+
       '<span class="sub num">'+fmtClock(arr)+'着・'+r.len.toFixed(1)+'km'+(r.delay>=60?'・渋滞で+'+fmtDur(r.delay):'')+
         (r.g ? (r.toll ? (r.yen?'・有料 '+r.yen.toLocaleString()+'円':'・有料道路あり') : '・有料道路なし') : (r.toll>0?'・高速'+Math.round(r.toll)+'km 約'+r.yen.toLocaleString()+'円':'・高速道路なし'))+(p.also?'<br>'+p.also.join("・")+'でも同じルート':'')+'</span>';
     b.onclick=function(){ R.sel=i; drawCards(); pickRoute(i); };
@@ -1242,6 +1246,7 @@ function pickRoute(i, noFit){
   ensureRouteLayers(); setDetail(true);
   var main=R.picks[i].r, feats=[];
   drawSteps(main);
+  routeOrbis(main);
   R.picks.forEach(function(p){ if(p.r!==main) feats.push({type:"Feature",properties:{role:"alt"},geometry:{type:"LineString",coordinates:lineOf(p.r.pts)}}); });
   feats.push({type:"Feature",properties:{role:"main"},geometry:{type:"LineString",coordinates:lineOf(main.pts)}});
   main.traffic.forEach(function(t){ if(t.e>t.s) feats.push({type:"Feature",properties:{role:"traffic",color:KCOL[t.kind]},geometry:{type:"LineString",coordinates:lineOf(main.pts.slice(t.s,t.e+1))}}); });
@@ -1260,6 +1265,45 @@ function clearRoute(){
   routeMarkers.forEach(function(m){m.remove();}); routeMarkers=[];
 }
 
+// ---- ルート上のオービス（ルートの線から60m以内のもの）。走行中は2km・1km・500m手前で知らせる ----
+function segKm(p,a,b){ var k=Math.cos(p[0]*Math.PI/180), ax=(a[1]-p[1])*k*111.32, ay=(a[0]-p[0])*111.32, bx=(b[1]-p[1])*k*111.32, by=(b[0]-p[0])*111.32;
+  var dx=bx-ax, dy=by-ay, L=dx*dx+dy*dy, t=L?Math.max(0,Math.min(1,-(ax*dx+ay*dy)/L)):0, x=ax+dx*t, y=ay+dy*t; return {d:Math.sqrt(x*x+y*y),t:t}; }
+function placeOnRoute(r,list){ var out=[], seen={};
+  list.forEach(function(o){ if(seen[o.id]) return; var bd=1e9, bi=0, bt=0;
+    for(var i=0;i<r.pts.length-1;i++){ if(Math.abs(r.pts[i][0]-o.ll[0])>0.05&&Math.abs(r.pts[i+1][0]-o.ll[0])>0.05) continue;
+      var q=segKm(o.ll,r.pts[i],r.pts[i+1]); if(q.d<bd){ bd=q.d; bi=i; bt=q.t; } }
+    if(bd<=0.06){ seen[o.id]=1; out.push({id:o.id,ll:o.ll,max:o.max,name:o.name,at:(r.cum[bi]||0)+((r.cum[bi+1]||0)-(r.cum[bi]||0))*bt}); } });
+  return out.sort(function(a,b){ return a.at-b.at; }); }
+var orbPool={};
+function routeOrbis(r){
+  if(!orbOn || r.orbs || r.orbLoading || !r.pts || r.pts.length<2) return;
+  orbs.forEach(function(o){ orbPool[o.id]=o; });
+  var pool=function(){ return Object.keys(orbPool).map(function(k){ return orbPool[k]; }); };
+  if(R.orbRoute && !differs(R.orbRoute,r)){ r.orbs=placeOnRoute(r,pool()); return; }
+  r.orbLoading=true;
+  var st=Math.max(1,Math.floor(r.pts.length/300)), pl=[];
+  for(var i=0;i<r.pts.length;i+=st) pl.push(r.pts[i][0].toFixed(5)+","+r.pts[i][1].toFixed(5));
+  var l=r.pts[r.pts.length-1]; pl.push(l[0].toFixed(5)+","+l[1].toFixed(5));
+  var a="around:250,"+pl.join(",");
+  overpass('[out:json][timeout:40];(node["highway"="speed_camera"]('+a+');node["enforcement"="maxspeed"]('+a+'););out tags;')
+    .then(function(j){
+      (j.elements||[]).forEach(function(e){ if(e.lat==null) return; var t=e.tags||{};
+        orbPool[e.type+e.id]={id:e.type+e.id,ll:[e.lat,e.lon],max:t.maxspeed||"",name:t.name||t.description||""}; });
+      r.orbs=placeOnRoute(r,pool()); R.orbRoute=r; r.orbLoading=false;
+      var known={}; orbs.forEach(function(o){ known[o.id]=1; }); r.orbs.forEach(function(o){ if(!known[o.id]) orbs.push(o); });
+      drawOrbis(); if(!$("routePanel").hidden && R.picks && R.picks.length) drawCards(); if(R.nav) navTick();
+    }).catch(function(){ r.orbLoading=false; r.orbs=placeOnRoute(r,pool()); });
+}
+function navOrbis(r,done){
+  if(!orbOn || !r.orbs) return false;
+  var no=null; for(var k=0;k<r.orbs.length;k++){ if(r.orbs[k].at>done-0.03){ no=r.orbs[k]; break; } }
+  var busy=!!$("orbAlert").style.background;
+  if(!no || no.at-done>2.05){ if(!busy) $("orbAlert").hidden=true; return true; }
+  var dd=Math.max(0,no.at-done), lv=dd<=0.5?3:dd<=1.05?2:1;
+  if(!busy){ $("orbDist").textContent=fmtKm(dd); $("orbText").textContent="先 ルート上にオービス"+(no.max?"（制限"+no.max+"km/h）":""); $("orbAlert").hidden=false; }
+  R.orbW=R.orbW||{}; if(!R.orbW[no.id+"_"+lv]){ R.orbW[no.id+"_"+lv]=1; beep(); try{ navigator.vibrate && navigator.vibrate(lv===3?[300,120,300,120,300]:[300,150,300]); }catch(e){} }
+  return true;
+}
 // ---- 走行中のリアルタイム監視 ----
 $("btnGo").onclick=function(){
   R.nav=true; R.seen={}; R.lastDelay=null; R.cur=R.picks[R.sel];
@@ -1336,6 +1380,7 @@ function navTick(c){
   var done=r.cum[bi]||0, nx=null;
   for(var j=0;j<r.steps.length;j++){ if(r.steps[j].off>done+0.02 && r.steps[j].man!=="DEPART"){ nx=r.steps[j]; break; } }
   $("navNext").textContent = nx ? "次："+fmtKm(nx.off-done)+"先 "+nx.msg : "";
+  navOrbis(r,done);
   var acc=(c&&c.accuracy)||50;
   if(bd>Math.max(0.15,acc/1000*1.5) && Date.now()-(R.lastReroute||0)>15000) refreshNav(true);
 }
