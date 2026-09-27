@@ -114,7 +114,8 @@ html.lowz .orbis{display:none}
 .sheet-head{display:flex;justify-content:space-between;align-items:center;width:100%;gap:8px}
 .sheet-head h2{margin:0;font-size:15px}
 .legend{display:flex;align-items:center;gap:4px 6px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
-html:not(.gmap) .lg-ok{display:none!important}
+html:not(.gmap) .lg-hw{display:none!important}
+html.gmap #lgCong{background:#f2dc1a!important}
 .legend i{display:inline-block;width:14px;height:4px;border-radius:2px;margin-left:4px}
 .seg button{border:0;background:none;padding:4px 10px;border-radius:8px;font-size:12px;color:var(--muted)}
 .seg button[aria-pressed="true"]{background:var(--sign);color:var(--sign-ink);font-weight:700}
@@ -214,7 +215,7 @@ html:not(.gmap) .lg-ok{display:none!important}
     <span class="sheet-head"><h2 id="listTitle">高速道路の事故・渋滞（近い順）</h2><span class="num" id="updated" style="color:var(--muted);font-size:12px"></span></span>
   </button>
   <div style="padding:0 12px 8px;display:flex;justify-content:space-between;align-items:center;gap:8px">
-    <div class="legend" aria-label="凡例"><i class="lg-ok" style="background:#1fb45a"></i><span class="lg-ok">順調</span><i style="background:#f39a1e"></i>混雑<i style="background:#e8302a"></i>渋滞<i style="background:var(--closed)"></i>通行止</div>
+    <div class="legend" aria-label="凡例"><i class="lg-hw" style="background:#2f6fd6"></i><span class="lg-hw">高速道路</span><i id="lgCong" style="background:#f39a1e"></i>混雑<i style="background:#e8302a"></i>渋滞<i style="background:var(--closed)"></i>通行止</div>
     <button class="btn ghost" id="btnRefresh" type="button" style="padding:6px 12px;font-size:13px">更新</button>
   </div>
   <div class="list" id="list"></div>
@@ -331,7 +332,7 @@ var REGIONS = [
 
 function $(id){ return document.getElementById(id); }
 // 新しい版が公開されていたら自動で読み込み直す（スマホに古いページが残るのを防ぐ）
-var APP_VER="20260927-12";
+var APP_VER="20260927-13";
 (function(){ try{ fetch(location.pathname+"?check="+Date.now(),{cache:"no-store"}).then(function(r){ return r.text(); }).then(function(t){
   var m=t.match(/APP_VER="([^"]+)"/); if(m && m[1]!==APP_VER && location.search.indexOf("v="+m[1])<0) location.replace(location.pathname+"?v="+m[1]+location.hash); }).catch(function(){}); }catch(e){} })();
 function ls(k,v){ try{ if(v===undefined) return localStorage.getItem(k); if(v===null) localStorage.removeItem(k); else localStorage.setItem(k,v);}catch(e){ return null; } }
@@ -361,6 +362,8 @@ var GSTYLE=[
   {featureType:"road.arterial",elementType:"geometry.fill",stylers:[{color:"#ffffff"}]},
   {featureType:"road.arterial",elementType:"geometry.stroke",stylers:[{color:"#d9d2c2"}]},
   {featureType:"road.highway",elementType:"geometry.fill",stylers:[{color:"#ffffff"}]},
+  {featureType:"road.highway.controlled_access",elementType:"geometry.fill",stylers:[{color:"#2f6fd6"}]},
+  {featureType:"road.highway.controlled_access",elementType:"geometry.stroke",stylers:[{color:"#173f80"},{weight:1.2}]},
   {featureType:"road.highway",elementType:"geometry.stroke",stylers:[{color:"#27323a"},{weight:1.6}]},
   {featureType:"road.highway",elementType:"labels.text.fill",stylers:[{color:"#0b5a36"}]},
   {featureType:"road.highway",elementType:"labels.text.stroke",stylers:[{color:"#ffffff"},{weight:4}]},
@@ -402,7 +405,13 @@ function GM(){
     if(!google.maps.Map && google.maps.importLibrary){ await google.maps.importLibrary("core"); await google.maps.importLibrary("maps"); }
     gmap=new google.maps.Map(document.getElementById("map"),{center:{lat:36.2,lng:138.3},zoom:5,minZoom:4,maxZoom:19,disableDefaultUI:true,
       gestureHandling:"greedy",clickableIcons:false,keyboardShortcuts:false,styles:GSTYLE,backgroundColor:"#bcd8ef"});
-    var tl=new google.maps.TrafficLayer(); tl.setMap(gmap); setInterval(function(){ tl.setMap(null); tl.setMap(gmap); },5*6e4);
+    // 混雑・渋滞の区間だけ色を付ける（TomTomの遅延表示。順調な区間は色を付けない）
+    if(key){ var addDelay=function(){ var t=Date.now(); var mt=new google.maps.ImageMapType({tileSize:new google.maps.Size(256,256),maxZoom:19,
+        getTileUrl:function(c,z){ var n=1<<z; if(c.y<0||c.y>=n) return null; var x=((c.x%n)+n)%n;
+          return "https://api.tomtom.com/traffic/map/4/tile/flow/relative-delay/"+z+"/"+x+"/"+c.y+".png?key="+encodeURIComponent(key)+"&t="+t; }});
+        gmap.overlayMapTypes.clear(); gmap.overlayMapTypes.push(mt); };
+      addDelay(); setInterval(addDelay,5*6e4); }
+    else { var tl=new google.maps.TrafficLayer(); tl.setMap(gmap); setInterval(function(){ tl.setMap(null); tl.setMap(gmap); },5*6e4); }
     gmap.addListener("idle",function(){ onMove.forEach(function(f){ f(); }); });
     var lastZ=gmap.getZoom(); gmap.addListener("zoom_changed",function(){ var z=Math.round(gmap.getZoom()); if(z!==lastZ){ lastZ=z; redraw(); } });
     var c=gCnt(); c.m2=(c.m2||0)+1; ls("g_cnt",JSON.stringify(c));
