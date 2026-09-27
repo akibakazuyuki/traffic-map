@@ -617,11 +617,31 @@ $("closeRoute").onclick=function(){ $("routePanel").hidden=true; };
 $("routePanel").addEventListener("click",function(e){ if(e.target===this) this.hidden=true; });
 
 // 目的地検索：TomTom・OpenStreetMap・国土地理院をまとめて探し、候補を一覧にする
+function norm(t){ return (t||"").normalize("NFKC").replace(/[\s・･\-－ー]/g,function(c){ return c==="ー"?c:""; }).toLowerCase(); }
+function match(q,n){
+  if(!q||!n) return 0;
+  if(n.indexOf(q)===0) return 3;
+  if(n.indexOf(q)>=0) return 2.5;
+  var hit=0, tot=Math.max(1,q.length-1);
+  for(var i=0;i<q.length-1;i++) if(n.indexOf(q.substr(i,2))>=0) hit++;
+  return 2*hit/tot;
+}
 function searchPlaces(q,o,typing){
   var near=o?"&lat="+o[0]+"&lon="+o[1]:"";
-  var tomtom=fetch(tt("/search/2/search/"+encodeURIComponent(q)+".json","language=ja-JP&countrySet=JP&limit=8"+near+(typing?"&typeahead=true":"")))
-    .then(function(r){ if(!r.ok) throw new Error("TomTom "+r.status); return r.json(); })
-    .then(function(j){ return (j.results||[]).map(function(x){ return {name:(x.poi&&x.poi.name)||x.address.freeformAddress, addr:x.address.freeformAddress||"", ll:[x.position.lat,x.position.lon]}; }); });
+  function ttq(kind,extra){
+    return fetch(tt("/search/2/"+kind+"/"+encodeURIComponent(q)+".json","language=ja-JP&countrySet=JP&limit=10"+near+extra))
+      .then(function(r){ if(!r.ok) throw new Error("TomTom "+r.status); return r.json(); })
+      .then(function(j){ return (j.results||[]).map(function(x){ return {name:(x.poi&&x.poi.name)||x.address.freeformAddress, addr:x.address.freeformAddress||"", ll:[x.position.lat,x.position.lon]}; }); });
+  }
+  // 施設名に強いPOI検索と、住所も含む通常検索を両方使う
+  var tomtom=ttq("poiSearch",typing?"&typeahead=true":"");
+  var tomtom2=ttq("search",typing?"&typeahead=true":"");
+  // Photon（OpenStreetMapのデータ、入力中の候補表示向け）
+  var photon=fetch("https://photon.komoot.io/api/?limit=8&q="+encodeURIComponent(q)+(o?"&lat="+o[0]+"&lon="+o[1]:"")+"&bbox=122,20,154,46")
+    .then(function(r){ if(!r.ok) throw new Error("Photon "+r.status); return r.json(); })
+    .then(function(j){ return (j.features||[]).map(function(f){ var pr=f.properties||{};
+      return {name:pr.name||pr.street||"", addr:[pr.state,pr.county,pr.city,pr.district,pr.street].filter(Boolean).join(""), ll:[f.geometry.coordinates[1],f.geometry.coordinates[0]]}; })
+      .filter(function(c){ return c.name; }); });
   // OpenStreetMapの検索は入力中の自動検索が禁止されているため、確定時だけ使う
   var osm=typing?Promise.resolve([]):fetch("https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=jp&accept-language=ja&limit=8&q="+encodeURIComponent(q))
     .then(function(r){ if(!r.ok) throw new Error("OSM "+r.status); return r.json(); })
@@ -630,13 +650,17 @@ function searchPlaces(q,o,typing){
   var gsi=fetch("https://msearch.gsi.go.jp/address-search/AddressSearch?q="+encodeURIComponent(q))
     .then(function(r){ return r.json(); })
     .then(function(a){ return (a||[]).slice(0,5).map(function(x){ return {name:x.properties.title, addr:"住所・地名", ll:[x.geometry.coordinates[1],x.geometry.coordinates[0]]}; }); });
-  return Promise.all([tomtom,osm,gsi].map(function(p){ return p.then(function(v){return {ok:true,v:v};},function(e){return {ok:false,e:String(e.message||e)};}); }))
+  return Promise.all([tomtom,tomtom2,photon,osm,gsi].map(function(p){ return p.then(function(v){return {ok:true,v:v};},function(e){return {ok:false,e:String(e.message||e)};}); }))
     .then(function(rs){
       var out=[], errs=[];
       rs.forEach(function(r){ if(!r.ok){ errs.push(r.e); return; }
         r.v.forEach(function(c){ if(!c.ll||isNaN(c.ll[0])) return;
           if(out.some(function(d){ return km(d.ll,c.ll)<0.3; })) return; out.push(c); }); });
       if(o) out.forEach(function(c){ c.d=km(o,c.ll); });
+      // 入力した文字に近い名前ほど上に。同じくらいなら近い順
+      var nq=norm(q);
+      out.forEach(function(c){ c.m=match(nq,norm(c.name)); });
+      out.sort(function(a,b){ return (b.m-a.m) || ((a.d||0)-(b.d||0)); });
       return {list:out.slice(0,12), errs:errs};
     });
 }
