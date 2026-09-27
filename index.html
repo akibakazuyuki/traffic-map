@@ -247,7 +247,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--slow);outline-o
     <h3 id="routeTitle">ルート検索</h3>
     <p id="routeFrom">出発地：現在地</p>
     <form class="field" id="routeForm">
-      <input id="destInput" type="search" placeholder="目的地を入力（例：御殿場アウトレット）" aria-label="目的地" autocomplete="off">
+      <input id="destInput" type="search" placeholder="施設名・住所・電話番号" aria-label="目的地" autocomplete="off">
       <button class="btn" type="submit">検索</button>
     </form>
     <div class="sugg" id="destSugg" hidden></div>
@@ -667,7 +667,7 @@ function ttFetch(url){
       fetch(url).then(function(r){
         if(r.status===429 && tries<2){ ttBusy--; next(); setTimeout(function(){ queue(function(){ go(tries+1); }); },700); return; }
         if(!r.ok) throw new Error("TomTom "+r.status); return r.json().then(function(j){ ttBusy--; next();
-          ok((j.results||[]).map(function(x){ return {name:(x.poi&&x.poi.name)||x.address.freeformAddress, addr:x.address.freeformAddress||"", ll:[x.position.lat,x.position.lon]}; })); });
+          ok((j.results||[]).map(function(x){ return {name:(x.poi&&x.poi.name)||x.address.freeformAddress, addr:x.address.freeformAddress||"", tel:(x.poi&&x.poi.phone)||"", ll:[x.position.lat,x.position.lon]}; })); });
       }).catch(function(e){ ttBusy--; next(); ng(e); });
     }
     queue(function(){ go(0); });
@@ -685,23 +685,28 @@ function jsonp(url){
     sc.src=url+"&callback="+cb; document.head.appendChild(sc);
   });
 }
+// 電話番号（0から始まる10〜11桁）なら数字だけにして返す
+function telDigits(t){ var d=(t||"").normalize("NFKC").replace(/[\s()\-‐－ー]/g,""); if(/^\+?81/.test(d)) d="0"+d.replace(/^\+?81/,""); return /^0\d{9,10}$/.test(d)?d:""; }
+function isAddr(t){ return /[都道府県]|[市区町村郡].*\d|丁目|番地/.test(t); }
 function searchPlaces(q,o,typing,onUpdate){
+  var ph=telDigits(q);
+  if(ph){ var hy=q.normalize("NFKC"); q=/-/.test(hy)?hy:ph; }
   var near=o?"&lat="+o[0]+"&lon="+o[1]:"";
   function ttq(kind,extra){ return ttFetch(tt("/search/2/"+kind+"/"+encodeURIComponent(q)+".json","language=ja-JP&countrySet=JP&limit=10"+near+extra)); }
   var tomtom=Promise.resolve([]);
   var tomtom2=ttq("search",typing?"&typeahead=true":"");
   // Photon（OpenStreetMapのデータ、入力中の候補表示向け）
-  var photon=fetch("https://photon.komoot.io/api/?lang=default&limit=8&q="+encodeURIComponent(q)+(o?"&lat="+o[0]+"&lon="+o[1]:"")+"&bbox=122,20,154,46")
+  var photon=ph?Promise.resolve([]):fetch("https://photon.komoot.io/api/?lang=default&limit=8&q="+encodeURIComponent(q)+(o?"&lat="+o[0]+"&lon="+o[1]:"")+"&bbox=122,20,154,46")
     .then(function(r){ if(!r.ok) throw new Error("Photon "+r.status); return r.json(); })
     .then(function(j){ return (j.features||[]).map(function(f){ var pr=f.properties||{};
       return {name:pr.name||pr.street||"", addr:[pr.state,pr.county,pr.city,pr.district,pr.street].filter(Boolean).join(""), ll:[f.geometry.coordinates[1],f.geometry.coordinates[0]]}; })
       .filter(function(c){ return c.name; }); });
   // OpenStreetMapの検索は入力中の自動検索が禁止されているため、確定時だけ使う
-  var osm=typing?Promise.resolve([]):fetch("https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=jp&accept-language=ja&limit=8&q="+encodeURIComponent(q))
+  var osm=(typing||ph)?Promise.resolve([]):fetch("https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=jp&accept-language=ja&limit=8&q="+encodeURIComponent(q))
     .then(function(r){ if(!r.ok) throw new Error("OSM "+r.status); return r.json(); })
     .then(function(a){ return a.map(function(x){ var parts=(x.display_name||"").split(",").map(function(t){return t.trim();});
       return {name:x.name||parts[0], addr:parts.slice(1).reverse().filter(function(t){return !/^\d{3}-?\d{4}$/.test(t)&&t!=="日本";}).join(""), ll:[+x.lat,+x.lon]}; }); });
-  var gsiRaw=fetch("https://msearch.gsi.go.jp/address-search/AddressSearch?q="+encodeURIComponent(q))
+  var gsiRaw=ph?Promise.resolve([]):fetch("https://msearch.gsi.go.jp/address-search/AddressSearch?q="+encodeURIComponent(q))
     .then(function(r){ return r.json(); })
     .then(function(a){ return (a||[]).map(function(x){ return {name:x.properties.title, addr:"住所・地名", ll:[x.geometry.coordinates[1],x.geometry.coordinates[0]]}; }); });
   var gsi=gsiRaw.then(function(a){ return a.slice(0,5); });
@@ -728,20 +733,24 @@ function searchPlaces(q,o,typing,onUpdate){
       return Promise.all(jobs.map(function(p){ return p.catch(function(){ return []; }); })).then(function(rs){ return [].concat.apply([],rs); });
     })).then(function(rs){ return [].concat.apply([],rs); });
   });
-  var yahoo=yjId?jsonp("https://map.yahooapis.jp/search/local/V1/localSearch?appid="+encodeURIComponent(yjId)+"&output=json&results=10&detail=simple&query="+encodeURIComponent(q)+(o?"&lat="+o[0]+"&lon="+o[1]+"&sort=hybrid":""))
+  var yahoo=yjId?jsonp("https://map.yahooapis.jp/search/local/V1/localSearch?appid="+encodeURIComponent(yjId)+"&output=json&results=10&detail=standard&query="+encodeURIComponent(q)+(o?"&lat="+o[0]+"&lon="+o[1]+"&sort=hybrid":""))
     .then(function(j){ if(j&&j.Error) throw new Error("Yahoo "+(j.Error.Message||"エラー")); return ((j&&j.Feature)||[]).map(function(f){ var c=((f.Geometry||{}).Coordinates||"").split(",");
-      return {name:f.Name, addr:(f.Property||{}).Address||"", ll:[+c[1],+c[0]]}; }); }):Promise.resolve([]);
+      return {name:f.Name, addr:(f.Property||{}).Address||"", tel:(f.Property||{}).Tel1||"", ll:[+c[1],+c[0]]}; }); }):Promise.resolve([]);
+  // 住所：Yahoo! ジオコーダ（番地まで）
+  var yaddr=(yjId && !ph && isAddr(q))?jsonp("https://map.yahooapis.jp/geocode/V1/geoCoder?appid="+encodeURIComponent(yjId)+"&output=json&results=3&query="+encodeURIComponent(q))
+    .then(function(j){ return ((j&&j.Feature)||[]).map(function(f){ var c=((f.Geometry||{}).Coordinates||"").split(","); return {name:f.Name, addr:"住所", ll:[+c[1],+c[0]]}; }); }):Promise.resolve([]);
   // 返ってきた検索元から順に一覧を更新する。遅い検索元は8秒で打ち切る
-  var srcs=[yahoo,area,tomtom,tomtom2,photon,osm,gsi], got=srcs.map(function(){ return null; }), left=srcs.length;
+  var srcs=ph?[yahoo,tomtom2]:[yaddr,yahoo,area,tomtom,tomtom2,photon,osm,gsi], got=srcs.map(function(){ return null; }), left=srcs.length;
   function merge(){
       var out=[], errs=[];
       got.forEach(function(r){ if(!r) return; if(!r.ok){ errs.push(r.e); return; }
         r.v.forEach(function(c){ if(!c.ll||isNaN(c.ll[0])) return;
+          if(ph){ if(telDigits(c.tel)!==ph) return; if(!c.telShown){ c.telShown=1; c.addr=c.tel+"・"+c.addr; } }
           if(out.some(function(d){ return km(d.ll,c.ll)<0.3; })) return; out.push(c); }); });
       if(o) out.forEach(function(c){ c.d=km(o,c.ll); });
       // 入力した文字に近い名前ほど上に。同じくらいなら近い順
       var nq=norm(q);
-      out.forEach(function(c){ c.m=match(nq,norm(c.name)); });
+      out.forEach(function(c){ c.m=Math.max(match(nq,norm(c.name)), match(nq,norm(c.addr))*0.95); });
       out.sort(function(a,b){ return (b.m-a.m) || ((a.d||0)-(b.d||0)); });
       return {list:out.slice(0,12), errs:errs, pending:left>0};
   }
@@ -754,14 +763,18 @@ function searchPlaces(q,o,typing,onUpdate){
   });
 }
 var destSeq=0, destTimer=null;
+function addYjHint(){ var box=$("destSugg"), h=document.createElement("button"); h.type="button"; h.className="hint"; h.innerHTML='探している施設が出ないときは<small>Yahoo! の施設検索を追加（無料）</small>';
+  h.onclick=function(){ $("routePanel").hidden=true; openKey(); setTimeout(function(){ $("yjInput").scrollIntoView({block:"center"}); },50); }; box.appendChild(h); }
 function suggest(q,typing){
   var my=++destSeq, o=origin(), box=$("destSugg");
   if(q.length<2){ box.hidden=true; return; }
+  if(/^[\d０-９\s\-‐－()+]+$/.test(q) && !telDigits(q)){ box.hidden=false; box.innerHTML='<button type="button" disabled>電話番号は市外局番から最後まで入力してください</button>'; return; }
   box.hidden=false; if(!box.children.length || !typing) box.innerHTML='<button type="button" disabled>「'+esc(q)+'」の候補を探しています…</button>';
   function show(res){
     if(my!==destSeq) return;
     if(res.pending && !res.list.length) return;
     box.innerHTML="";
+    if(!res.list.length && telDigits(q)){ box.innerHTML='<button type="button" disabled>この電話番号の施設は見つかりませんでした'+(yjId?'':'<small>電話番号での検索は Yahoo! の施設検索を追加すると確実になります</small>')+'</button>'; if(!yjId){ addYjHint(); } return; }
     if(!res.list.length){ box.innerHTML='<button type="button" disabled>候補が見つかりません。続けて入力するか、施設名・住所で試してください'+(res.errs.length?'<small>'+esc(res.errs.join(" / "))+'</small>':'')+'</button>'; return; }
     res.list.forEach(function(x){
       var b=document.createElement("button"); b.type="button";
@@ -771,8 +784,7 @@ function suggest(q,typing){
     });
     if(res.pending){ var pd=document.createElement("button"); pd.type="button"; pd.disabled=true; pd.innerHTML='<small>ほかの候補も探しています…</small>'; box.appendChild(pd); return; }
     if(res.errs.length){ var er=document.createElement("button"); er.type="button"; er.disabled=true; er.innerHTML='<small>取得できなかった検索元：'+esc(res.errs.join(" / "))+'</small>'; box.appendChild(er); }
-    if(!yjId){ var h=document.createElement("button"); h.type="button"; h.className="hint"; h.innerHTML='探している施設が出ないときは<small>Yahoo! の施設検索を追加（無料）</small>';
-      h.onclick=function(){ $("routePanel").hidden=true; openKey(); setTimeout(function(){ $("yjInput").scrollIntoView({block:"center"}); },50); }; box.appendChild(h); }
+    if(!yjId) addYjHint();
   }
   searchPlaces(q,o,typing,show).then(show);
 }
