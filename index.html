@@ -325,7 +325,7 @@ var REGIONS = [
 
 function $(id){ return document.getElementById(id); }
 // 新しい版が公開されていたら自動で読み込み直す（スマホに古いページが残るのを防ぐ）
-var APP_VER="20260927-5";
+var APP_VER="20260927-6";
 (function(){ try{ fetch(location.pathname+"?check="+Date.now(),{cache:"no-store"}).then(function(r){ return r.text(); }).then(function(t){
   var m=t.match(/APP_VER="([^"]+)"/); if(m && m[1]!==APP_VER && location.search.indexOf("v="+m[1])<0) location.replace(location.pathname+"?v="+m[1]+location.hash); }).catch(function(){}); }catch(e){} })();
 function ls(k,v){ try{ if(v===undefined) return localStorage.getItem(k); if(v===null) localStorage.removeItem(k); else localStorage.setItem(k,v);}catch(e){ return null; } }
@@ -510,8 +510,11 @@ function loadOrbis(c){
   var dLat=RADIUS_KM/111, dLon=RADIUS_KM/(111*Math.cos(c[0]*Math.PI/180));
   var bb=[c[0]-dLat,c[1]-dLon,c[0]+dLat,c[1]+dLon].map(function(v){return v.toFixed(4);}).join(",");
   var q='[out:json][timeout:25];(node["highway"="speed_camera"]('+bb+');node["enforcement"="maxspeed"]('+bb+');relation["enforcement"="maxspeed"]('+bb+'););out center tags;';
-  fetch("https://overpass-api.de/api/interpreter",{method:"POST",body:"data="+encodeURIComponent(q),headers:{"Content-Type":"application/x-www-form-urlencoded"}})
-    .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
+  // 前回取れたデータがあればすぐ表示（7日以内）。取得は混雑時に別のサーバーへ切り替えて再試行する
+  var ck="orb_"+(Math.round(c[0]*5)/5)+"_"+(Math.round(c[1]*5)/5), cache=null;
+  try{ cache=JSON.parse(ls(ck)||"null"); }catch(e){}
+  if(cache && Date.now()-cache.t<7*864e5){ orbs=cache.o; drawOrbis(); checkOrbis(); }
+  overpass(q)
     .then(function(j){
       var seen={};
       orbs=(j.elements||[]).map(function(e){
@@ -521,8 +524,21 @@ function loadOrbis(c){
         var t=e.tags||{};
         return {id:e.type+e.id, ll:[lat,lon], max:t.maxspeed||"", name:t.name||t.description||""};
       }).filter(Boolean);
+      if(orbCenter!==c) return;
       drawOrbis(); checkOrbis();
-    }).catch(function(){ $("cOrb").textContent="?"; });
+      try{ ls(ck,JSON.stringify({t:Date.now(),o:orbs})); }catch(e){}
+    }).catch(function(){ if(!cache) $("cOrb").textContent="?"; });
+}
+var OVERPASS=["https://overpass-api.de/api/interpreter","https://overpass.kumi.systems/api/interpreter","https://overpass.private.coffee/api/interpreter"];
+function overpass(q,start){
+  var i=start||0;
+  function go(k){
+    if(k>=OVERPASS.length) return Promise.reject(new Error("overpass"));
+    return fetch(OVERPASS[(i+k)%OVERPASS.length],{method:"POST",body:"data="+encodeURIComponent(q),headers:{"Content-Type":"application/x-www-form-urlencoded"}})
+      .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
+      .catch(function(){ return go(k+1); });
+  }
+  return go(0);
 }
 function drawOrbis(){
   orbMarkers.forEach(function(m){ m.remove(); }); orbMarkers=[];
@@ -769,10 +785,9 @@ function searchPlaces(q,o,typing,onUpdate){
       var near2="&lat="+an.ll[0]+"&lon="+an.ll[1]+"&radius=30000";
       var jobs=[ttFetch(tt("/search/2/poiSearch/"+encodeURIComponent(q)+".json","language=ja-JP&countrySet=JP&limit=5"+near2+(typing?"&typeahead=true":"")))];
       // OpenStreetMap の施設名（地名を除いた部分）で周辺を探す。確定時のみ
-      if(an.rest.length>=2){
+      if(!typing && an.rest.length>=2){
         var ql='[out:json][timeout:15];nwr["name"~"'+an.rest.replace(/[\\"\[\]().*+?^$|{}]/g,"")+'"](around:30000,'+an.ll[0]+','+an.ll[1]+');out center 10;';
-        jobs.push(fetch("https://overpass-api.de/api/interpreter",{method:"POST",body:"data="+encodeURIComponent(ql),headers:{"Content-Type":"application/x-www-form-urlencoded"}})
-          .then(function(r){ return r.json(); })
+        jobs.push(overpass(ql,1)
           .then(function(j){ return (j.elements||[]).map(function(e){ var la=e.lat!=null?e.lat:(e.center||{}).lat, lo=e.lon!=null?e.lon:(e.center||{}).lon;
             var tg=e.tags||{}; return {name:tg.name, addr:[tg["addr:province"],tg["addr:city"]].filter(Boolean).join("")||"OpenStreetMap", ll:[la,lo]}; }).filter(function(c){ return c.name&&c.ll[0]!=null; }); }).catch(function(){ return []; }));
       }
