@@ -74,6 +74,12 @@ html.gmap #map{position:fixed!important;inset:0;width:100%;height:100%}
 .sugg button small{display:block;color:var(--muted);font-size:12px}
 .sugg button:last-child{border-bottom:0}
 .sugg button.hint{color:var(--sign);font-weight:700;background:var(--deck2)}
+.arrbox{border:1px solid var(--line);border-radius:14px;padding:10px 12px;background:var(--deck2)}
+.arrrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.arrrow label{font-size:13px;font-weight:700}
+.arrrow input{font:inherit;font-size:17px;padding:6px 8px;border:1px solid var(--line);border-radius:10px;background:#fff}
+#arrOut{margin:8px 0 0;font-size:14px;line-height:1.6}
+#arrOut b{font-size:20px}
 .rcards{display:flex;flex-direction:column;gap:8px}
 .rcard{display:grid;grid-template-columns:auto 1fr auto;gap:4px 12px;align-items:center;text-align:left;border:2px solid var(--line);background:var(--deck);border-radius:14px;padding:12px}
 .rcard[aria-pressed="true"]{border-color:var(--sign);background:#eef7f2}
@@ -291,6 +297,10 @@ html.gmap #lgCong{background:#f2dc1a!important}
     <div class="rcards" id="rCards"></div>
     <details class="rsteps" id="rSteps" hidden><summary id="rStepsSum">道順</summary><ol id="rStepsList"></ol></details>
     <p id="routeNote"></p>
+    <div class="arrbox" id="arrBox" hidden>
+      <div class="arrrow"><label for="arrTime">着きたい時刻</label><input id="arrTime" type="time" step="300"><button class="btn" id="btnArr" type="button">出発時刻を出す</button></div>
+      <p id="arrOut" aria-live="polite"></p>
+    </div>
     <div class="row"><button class="btn" id="btnGo" type="button" hidden>このルートで出発</button><button class="btn ghost" id="btnViewMap" type="button" hidden>地図で確認</button><button class="btn ghost" id="closeRoute" type="button">閉じる</button></div>
   </div>
 </div>
@@ -331,7 +341,7 @@ var REGIONS = [
 
 function $(id){ return document.getElementById(id); }
 // 新しい版が公開されていたら自動で読み込み直す（スマホに古いページが残るのを防ぐ）
-var APP_VER="20260927-14";
+var APP_VER="20260927-15";
 (function(){ try{ fetch(location.pathname+"?check="+Date.now(),{cache:"no-store"}).then(function(r){ return r.text(); }).then(function(t){
   var m=t.match(/APP_VER="([^"]+)"/); if(m && m[1]!==APP_VER && location.search.indexOf("v="+m[1])<0) location.replace(location.pathname+"?v="+m[1]+location.hash); }).catch(function(){}); }catch(e){} })();
 function ls(k,v){ try{ if(v===undefined) return localStorage.getItem(k); if(v===null) localStorage.removeItem(k); else localStorage.setItem(k,v);}catch(e){ return null; } }
@@ -1170,7 +1180,7 @@ function searchRoutes(){
   var here=origin(); if(!here||!R.dest) return;
   updateEnds();
   var o=R.swap?R.dest.ll:here, dll=R.swap?here:R.dest.ll;
-  $("rCards").innerHTML='<div class="empty">ルートを探しています…</div>'; $("btnGo").hidden=true; $("btnViewMap").hidden=true; $("routeNote").textContent=""; $("rSteps").hidden=true;
+  $("rCards").innerHTML='<div class="empty">ルートを探しています…</div>'; $("btnGo").hidden=true; $("btnViewMap").hidden=true; $("routeNote").textContent=""; $("rSteps").hidden=true; $("arrBox").hidden=true; $("arrOut").textContent="";
   var reqs;
   if(gOk()){
     reqs=[gRoutes(o,dll,{avoidTolls:!R.hwy,avoidHighways:!R.hwy})];
@@ -1225,8 +1235,62 @@ function drawCards(){
     (!R.hwy && cur.mw>0.5 ? "一般道だけのルートが見つからず、一部で高速道路を通ります。" : "")+
     (cur.g ? (cur.toll ? "料金はGoogleの見積もり（ETC・普通車）です。" : "") : (cur.toll>0 ? "料金は高速道路（普通車）の目安です。首都高などの都市高速や割引は反映していません。" : ""));
   $("btnGo").hidden=!!R.swap; $("btnViewMap").hidden=false;
+  $("arrBox").hidden=!gOk();
   if(R.swap) $("routeNote").textContent="入れ替え中は帰り道などの確認用です。案内を始めるときは⇅で元に戻してください。"+$("routeNote").textContent;
 }
+// ---- 到着時刻から出発時刻を逆算（Googleの渋滞予測を使う。1回の逆算で最大4回計算） ----
+function gDur(o,d,dep,opt){
+  var tier=gTier(false); if(!tier) return Promise.reject(new Error("Googleの今月の無料枠の上限です"));
+  var c=gCnt(); c.p++; ls("g_cnt",JSON.stringify(c));
+  var body={origin:{location:{latLng:{latitude:o[0],longitude:o[1]}}},destination:{location:{latLng:{latitude:d[0],longitude:d[1]}}},
+    travelMode:"DRIVE",routingPreference:"TRAFFIC_AWARE",departureTime:new Date(dep).toISOString(),languageCode:"ja",
+    routeModifiers:{avoidTolls:!!opt.avoidTolls,avoidHighways:!!opt.avoidHighways}};
+  return fetch("https://routes.googleapis.com/directions/v2:computeRoutes",{method:"POST",headers:{"Content-Type":"application/json","X-Goog-Api-Key":gKey,
+    "X-Goog-FieldMask":"routes.duration,routes.distanceMeters"},body:JSON.stringify(body)})
+  .then(function(r){ return r.json().then(function(j){ if(!r.ok) throw new Error("Google "+r.status); var rt=(j.routes||[])[0]; if(!rt) throw new Error("none"); return parseInt(rt.duration,10)||0; }); });
+}
+function arriveTarget(){
+  var v=$("arrTime").value; if(!/^\d\d:\d\d$/.test(v)) return null;
+  var t=new Date(); t.setHours(+v.slice(0,2),+v.slice(3,5),0,0);
+  if(t.getTime()<Date.now()+5*6e4) t.setDate(t.getDate()+1); // もう過ぎた時刻なら明日
+  return t.getTime();
+}
+$("btnArr").onclick=function(){
+  var arr=arriveTarget(), out=$("arrOut"); if(!arr){ out.textContent="着きたい時刻を入れてください。"; return; }
+  ls("arrTime",$("arrTime").value);
+  var here=origin(); if(!here||!R.dest) return;
+  var o=R.swap?R.dest.ll:here, d=R.swap?here:R.dest.ll, p=R.picks[R.sel], cur=p&&p.r;
+  var opt={avoidTolls:!R.hwy||/料金優先/.test(p?p.k:""), avoidHighways:!R.hwy};
+  out.textContent="渋滞予測で計算しています…"; this.disabled=true; var btn=this;
+  var now=Date.now(), dep=Math.max(now+6e4, arr-(cur?cur.time*1000:3600e3)-10*6e4), n=0, dur=0, tried=[];
+  // 出発時刻を動かしながら所要時間を計算し直し、「着きたい時刻に間に合う一番遅い出発」を選ぶ
+  (function step(){
+    n++;
+    gDur(o,d,dep,opt).then(function(s){
+      tried.push({dep:dep,dur:s});
+      var fits=function(t){ return t.dep+t.dur*1000<=arr+6e4; };
+      var lo=tried.filter(fits).sort(function(x,y){ return y.dep-x.dep; })[0];
+      var hi=tried.filter(function(t){ return !fits(t) && (!lo || t.dep>lo.dep); }).sort(function(x,y){ return x.dep-y.dep; })[0];
+      if(!lo && dep<=now+6e4){ dur=s; return done(true); }
+      if(lo && (n>=6 || (hi && hi.dep-lo.dep<=5*6e4))){ dep=lo.dep; dur=lo.dur; return done(false); }
+      if(!lo && n>=6){ dep=tried[tried.length-1].dep; dur=s; return done(false,true); }
+      if(!lo){ dep=Math.max(now+6e4, dep-(dep+s*1000-arr)-5*6e4); return step(); }
+      if(!hi){ var nd=arr-lo.dur*1000; if(nd-lo.dep<3*6e4){ dep=lo.dep; dur=lo.dur; return done(false); } dep=nd; return step(); }
+      dep=Math.round((lo.dep+hi.dep)/2/6e4)*6e4; step();
+    }).catch(function(e){ btn.disabled=false; out.textContent="計算できませんでした（"+(e.message||"")+"）。"; });
+  })();
+  function done(late,rough){
+    btn.disabled=false;
+    var dt=function(t){ var x=new Date(t), td=new Date(); var tm=x.getDate()!==td.getDate()?"明日":""; return tm+fmtClock(x); };
+    if(late){ var eta=now+dur*1000;
+      out.innerHTML="今すぐ出ても到着は <b>"+esc(dt(eta))+"</b> ごろの見込みです"+(eta>arr?"（"+fmtDur(Math.round((eta-arr)/1000))+"遅れ）":"")+"。"; return; }
+    var nowDur=cur?cur.time:0, diff=dur-nowDur;
+    out.innerHTML="<b>"+esc(dt(dep))+"</b> に出発すれば、"+esc(dt(dep+dur*1000))+" ごろ到着の見込みです（所要"+fmtDur(dur)+"・渋滞予測込み）。"+(rough?"渋滞の変化が大きく、目安です。":"")+
+      "<br>余裕を15分みるなら "+esc(dt(dep-15*6e4))+" 出発。"+
+      (nowDur && Math.abs(diff)>=600 ? "<br>その時間帯は今より"+(diff>0?fmtDur(diff)+"長く":fmtDur(-diff)+"短く")+"かかる予測です。" : "");
+  }
+};
+try{ if(ls("arrTime")) $("arrTime").value=ls("arrTime"); }catch(e){}
 var routeMarkers=[];
 function ensureRouteLayers(){
   if(!ready || map.getSource("route")) return;
