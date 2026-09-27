@@ -229,6 +229,20 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--slow);outline-o
     </form>
     <button class="btn ghost" id="btnPaste" type="button">コピーしたキーを貼り付ける</button>
     <p>キーはこのブラウザの中にだけ保存され、外部には公開されません。</p>
+    <h3 style="margin-top:14px" id="gTitle">ルート探索（Google）</h3>
+    <p>日本の道路で正確なルートと到着時間を出すために Google のキーを使います。個人で使う分は毎月の無料枠に収まります（登録にクレジットカードが必要です）。</p>
+    <ol class="steps">
+      <li><a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Google Cloud</a> に Google アカウントでログインし、プロジェクトを作る（名前は「渋滞マップ」など）</li>
+      <li>案内に従って「お支払い（請求先アカウント）」を登録する</li>
+      <li><a href="https://console.cloud.google.com/apis/library/routes.googleapis.com" target="_blank" rel="noopener">Routes API のページ</a>を開き「有効にする」を押す</li>
+      <li><a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">認証情報のページ</a>で「認証情報を作成」→「APIキー」を押し、表示されたキー（AIza で始まる）をコピー</li>
+      <li>安全のため、そのキーの編集画面で「ウェブサイト」に <b>https://akibakazuyuki.github.io/*</b> を追加し、「APIの制限」で Routes API だけを選んで保存</li>
+      <li>コピーしたキーを下に貼り付けて「保存」</li>
+    </ol>
+    <form class="field" id="gForm">
+      <input id="gInput" type="text" placeholder="AIza で始まるキー" autocomplete="off" spellcheck="false" aria-label="Google APIキー">
+      <button class="btn" type="submit">保存</button>
+    </form>
     <h3 style="margin-top:14px">施設の検索（任意・無料）</h3>
     <p>ゴルフ場やお店など、目的地の施設を探しやすくなります。Yahoo! JAPAN の「Client ID」を使います。</p>
     <ol class="steps">
@@ -311,17 +325,18 @@ var REGIONS = [
 
 function $(id){ return document.getElementById(id); }
 // 新しい版が公開されていたら自動で読み込み直す（スマホに古いページが残るのを防ぐ）
-var APP_VER="20260927-3";
+var APP_VER="20260927-4";
 (function(){ try{ fetch(location.pathname+"?check="+Date.now(),{cache:"no-store"}).then(function(r){ return r.text(); }).then(function(t){
   var m=t.match(/APP_VER="([^"]+)"/); if(m && m[1]!==APP_VER && location.search.indexOf("v="+m[1])<0) location.replace(location.pathname+"?v="+m[1]+location.hash); }).catch(function(){}); }catch(e){} })();
 function ls(k,v){ try{ if(v===undefined) return localStorage.getItem(k); if(v===null) localStorage.removeItem(k); else localStorage.setItem(k,v);}catch(e){ return null; } }
 function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];}); }
 
-var key = ls("tt_key") || "", demo = false, yjId = ls("yj_id") || "";
+var key = ls("tt_key") || "", demo = false, yjId = ls("yj_id") || "", gKey = ls("g_key") || "";
 // セットアップ用リンク（#k=キー）で開いた場合はキーを保存し、アドレス欄から消す
-(function(){ var m=location.hash.match(/[#&]k=([A-Za-z0-9]{20,64})/), y=location.hash.match(/[#&]y=([A-Za-z0-9._-]{20,120})/);
+(function(){ var m=location.hash.match(/[#&]k=([A-Za-z0-9]{20,64})/), y=location.hash.match(/[#&]y=([A-Za-z0-9._-]{20,120})/), g=location.hash.match(/[#&]g=(AIza[A-Za-z0-9_-]{30,45})/);
+  if(g){ gKey=g[1]; ls("g_key",gKey); }
   if(m){ key=m[1]; ls("tt_key",key); } if(y){ yjId=y[1]; ls("yj_id",yjId); }
-  if(m||y){ try{ history.replaceState(null,"",location.pathname); }catch(e){} } })();
+  if(m||y||g){ try{ history.replaceState(null,"",location.pathname); }catch(e){} } })();
 var focus = null, me = null, incidents = [], seq = 0, ready = false;
 
 // ---- 地図（国土地理院ベクトルタイル：海岸線・県境・高速道路・路線名だけを描く） ----
@@ -667,7 +682,7 @@ $("rHwy").onclick=function(){ setHwy(true); }; $("rGen").onclick=function(){ set
 setHwy(R.hwy);
 
 $("btnRoute").onclick=function(){
-  if(!key){ openKey(); return; }
+  if(!key && !gKey){ openKey(); return; }
   updateEnds(); $("backRoute").hidden=true; document.querySelector(".gauge").hidden=R.nav;
   $("routePanel").hidden=false; setTimeout(function(){ $("destInput").focus(); },50);
 };
@@ -901,18 +916,85 @@ function setDetail(on){
   if(!ready) return;
   ["road-detail","lbl-road"].forEach(function(id){ if(map.getLayer(id)) map.setLayoutProperty(id,"visibility",on?"visible":"none"); });
 }
+// ---- Google Routes API（日本の道路で精度が高い。キーがあればこちらを使う） ----
+function decodePoly(s){ var i=0,lat=0,lng=0,out=[]; while(i<s.length){ var b,sh=0,r=0; do{ b=s.charCodeAt(i++)-63; r|=(b&31)<<sh; sh+=5; }while(b>=32); lat+=(r&1)?~(r>>1):(r>>1);
+  sh=0; r=0; do{ b=s.charCodeAt(i++)-63; r|=(b&31)<<sh; sh+=5; }while(b>=32); lng+=(r&1)?~(r>>1):(r>>1); out.push([lat/1e5,lng/1e5]); } return out; }
+var GMAN={TURN_LEFT:"TURN_LEFT",TURN_RIGHT:"TURN_RIGHT",TURN_SLIGHT_LEFT:"BEAR_LEFT",TURN_SLIGHT_RIGHT:"BEAR_RIGHT",TURN_SHARP_LEFT:"SHARP_LEFT",TURN_SHARP_RIGHT:"SHARP_RIGHT",
+  UTURN_LEFT:"MAKE_UTURN",UTURN_RIGHT:"MAKE_UTURN",STRAIGHT:"STRAIGHT",RAMP_LEFT:"MOTORWAY_EXIT_LEFT",RAMP_RIGHT:"MOTORWAY_EXIT_RIGHT",MERGE:"FOLLOW",FORK_LEFT:"KEEP_LEFT",FORK_RIGHT:"KEEP_RIGHT",
+  ROUNDABOUT_LEFT:"ROUNDABOUT_LEFT",ROUNDABOUT_RIGHT:"ROUNDABOUT_RIGHT",DEPART:"DEPART",NAME_CHANGE:"FOLLOW"};
+function gParse(rt){
+  var pts=decodePoly(((rt.polyline||{}).encodedPolyline)||""), cum=[0];
+  for(var i=1;i<pts.length;i++) cum.push(cum[i-1]+km(pts[i-1],pts[i]));
+  var traffic=[];
+  (((rt.travelAdvisory||{}).speedReadingIntervals)||[]).forEach(function(v){
+    if(v.speed!=="TRAFFIC_JAM" && v.speed!=="SLOW") return;
+    var a=v.startPolylinePointIndex||0, b=v.endPolylinePointIndex||a;
+    traffic.push({kind:v.speed==="TRAFFIC_JAM"?"jam":"etc",s:a,e:b,delay:0,at:cum[a]||0,len:(cum[b]||0)-(cum[a]||0)});
+  });
+  var steps=[], off=0;
+  (rt.legs||[]).forEach(function(l){ (l.steps||[]).forEach(function(st){
+    var ni=st.navigationInstruction||{}, ll=((st.startLocation||{}).latLng)||{};
+    if(ni.instructions) steps.push({off:off/1000, msg:ni.instructions.replace(/\n/g," "), road:"", man:GMAN[ni.maneuver]||ni.maneuver||"", ll:[ll.latitude,ll.longitude]});
+    off+=st.distanceMeters||0; }); });
+  steps.push({off:off/1000,msg:"目的地に到着",road:"",man:"ARRIVE",ll:pts[pts.length-1]});
+  var sec=function(d){ return parseInt(d||"0",10)||0; }, time=sec(rt.duration), stat=sec(rt.staticDuration);
+  var ti=(rt.travelAdvisory||{}).tollInfo, yen=0, toll=0;
+  if(ti){ (ti.estimatedPrice||[]).forEach(function(p){ if(p.currencyCode==="JPY") yen+=parseInt(p.units||"0",10); }); toll=1; }
+  return {steps:steps,mw:0,pts:pts,cum:cum,toll:toll,yen:yen,tollKnown:!!(ti&&ti.estimatedPrice),traffic:traffic,time:time,delay:Math.max(0,time-stat),
+    len:(rt.distanceMeters||0)/1000,arrive:new Date(Date.now()+time*1000),g:1};
+}
+function gRoutes(o,d,opt){
+  opt=opt||{};
+  var body={origin:{location:{latLng:{latitude:o[0],longitude:o[1]}}},destination:{location:{latLng:{latitude:d[0],longitude:d[1]}}},
+    travelMode:"DRIVE",routingPreference:"TRAFFIC_AWARE",computeAlternativeRoutes:!opt.via,languageCode:"ja",units:"METRIC",
+    routeModifiers:{avoidTolls:!!opt.avoidTolls,avoidHighways:!!opt.avoidHighways},extraComputations:["TOLLS","TRAFFIC_ON_POLYLINE"]};
+  if(opt.via) body.intermediates=opt.via.map(function(p){ return {via:true,location:{latLng:{latitude:p[0],longitude:p[1]}}}; });
+  return fetch("https://routes.googleapis.com/directions/v2:computeRoutes",{method:"POST",headers:{"Content-Type":"application/json","X-Goog-Api-Key":gKey,
+    "X-Goog-FieldMask":"routes.duration,routes.staticDuration,routes.distanceMeters,routes.polyline.encodedPolyline,routes.travelAdvisory,routes.legs.steps.navigationInstruction,routes.legs.steps.distanceMeters,routes.legs.steps.startLocation"},
+    body:JSON.stringify(body)})
+  .then(function(r){ return r.json().then(function(j){ if(!r.ok) throw new Error("Google "+r.status+((j.error&&j.error.message)?"："+j.error.message:"")); return j; }); })
+  .then(function(j){ return (j.routes||[]).map(gParse).filter(function(r){ return r.pts.length>1; }); })
+  .then(withIncidents);
+}
+// Googleは事故・通行止めを返さないので、TomTomの事故情報のうちルート沿い（300m以内）のものを重ねる
+function withIncidents(rs){
+  if(!key||!rs.length) return rs;
+  var bb=[180,90,-180,-90]; rs.forEach(function(r){ r.pts.forEach(function(p){ bb[0]=Math.min(bb[0],p[1]); bb[1]=Math.min(bb[1],p[0]); bb[2]=Math.max(bb[2],p[1]); bb[3]=Math.max(bb[3],p[0]); }); });
+  if((bb[2]-bb[0])*(bb[3]-bb[1])>9) return rs; // 範囲が広すぎるときは省略（TomTomの上限）
+  var fields="{incidents{type,geometry{type,coordinates},properties{iconCategory,delay}}}";
+  return fetch("https://api.tomtom.com/traffic/services/5/incidentDetails?key="+encodeURIComponent(key)+"&bbox="+bb.map(function(v){return v.toFixed(4);}).join(",")+
+    "&fields="+encodeURIComponent(fields)+"&timeValidityFilter=present").then(function(r){ return r.ok?r.json():{}; })
+  .then(function(j){
+    var inc=(j.incidents||[]).filter(function(i){ var c=(i.properties||{}).iconCategory; return c===1||c===8; });
+    rs.forEach(function(r){ var step=Math.max(1,Math.floor(r.pts.length/800));
+      inc.forEach(function(i){ var cs=coordsOf(i); if(!cs.length) return; var p=cs[0], bi=-1, bd=0.3;
+        for(var k=0;k<r.pts.length;k+=step){ var dd=km(p,r.pts[k]); if(dd<bd){ bd=dd; bi=k; } }
+        if(bi<0) return; var kind=(i.properties.iconCategory===1)?"acc":"cls";
+        var e=Math.min(r.pts.length-1,bi+step*2);
+        r.traffic.push({kind:kind,s:bi,e:e,delay:(i.properties.delay)||0,at:r.cum[bi],len:r.cum[e]-r.cum[bi]}); });
+      r.traffic.sort(function(a,b){ return a.at-b.at; }); });
+    return rs;
+  }).catch(function(){ return rs; });
+}
 function sig(r){ return Math.round(r.len*10)+"_"+Math.round(r.time/60); }
 function searchRoutes(){
   var here=origin(); if(!here||!R.dest) return;
   updateEnds();
   var o=R.swap?R.dest.ll:here, dll=R.swap?here:R.dest.ll;
   $("rCards").innerHTML='<div class="empty">ルートを探しています…</div>'; $("btnGo").hidden=true; $("btnViewMap").hidden=true; $("routeNote").textContent=""; $("rSteps").hidden=true;
-  var reqs=[fetch(routeUrl(o,dll,"&routeType=fastest&maxAlternatives=2")).then(function(r){ if(!r.ok) throw new Error("TomTom "+r.status); return r.json();})];
-  if(R.hwy) reqs.push(fetch(routeUrl(o,dll,"&routeType=fastest&avoid=tollRoads")).then(function(r){return r.json();}).catch(function(){return {};}));
-  else reqs.push(fetch(routeUrl(o,dll,"&routeType=shortest")).then(function(r){return r.json();}).catch(function(){return {};}));
+  var reqs;
+  if(gKey){
+    reqs=[gRoutes(o,dll,{avoidTolls:!R.hwy,avoidHighways:!R.hwy})];
+    if(R.hwy) reqs.push(gRoutes(o,dll,{avoidTolls:true}).catch(function(){ return []; }));
+  }else{
+    reqs=[fetch(routeUrl(o,dll,"&routeType=fastest&maxAlternatives=2")).then(function(r){ if(!r.ok) throw new Error("TomTom "+r.status); return r.json();})];
+    if(R.hwy) reqs.push(fetch(routeUrl(o,dll,"&routeType=fastest&avoid=tollRoads")).then(function(r){return r.json();}).catch(function(){return {};}));
+    else reqs.push(fetch(routeUrl(o,dll,"&routeType=shortest")).then(function(r){return r.json();}).catch(function(){return {};}));
+    reqs=reqs.map(function(p){ return p.then(function(j){ return (j.routes||[]).map(parseRoute); }); });
+  }
   Promise.all(reqs).then(function(js){
     var all=[], seen={};
-    js.forEach(function(j){ (j.routes||[]).forEach(function(rt){ var r=parseRoute(rt); var k=sig(r); if(!seen[k]){ seen[k]=1; all.push(r); } }); });
+    js.forEach(function(list){ list.forEach(function(r){ var k=sig(r); if(!seen[k]){ seen[k]=1; all.push(r); } }); });
     if(!all.length) throw new Error("none");
     R.routes=all;
     var byTime=all.slice().sort(function(a,b){return a.time-b.time;})[0];
@@ -923,7 +1005,7 @@ function searchRoutes(){
     // 同じルートは1枚にまとめる
     R.picks=[]; raw.forEach(function(p){ var same=R.picks.filter(function(x){ return x.r===p.r; })[0]; if(same) same.also=(same.also||[]).concat(p.k); else R.picks.push({k:p.k,r:p.r}); });
     R.sel=0; drawCards(); pickRoute(0);
-  }).catch(function(e){ $("rCards").innerHTML='<div class="empty">ルートを計算できませんでした（'+esc(e.message||"")+'）。'+(/40[13]/.test(e.message||"")?'TomTomのキーでRouting APIが使えない可能性があります。':'目的地や道路の設定を変えて試してください。')+'</div>'; });
+  }).catch(function(e){ $("rCards").innerHTML='<div class="empty">ルートを計算できませんでした（'+esc(e.message||"")+'）。'+(/Google 40[03]/.test(e.message||"")?'Googleのキーの設定（Routes APIの有効化やサイトの制限）を確認してください。':/40[13]/.test(e.message||"")?'TomTomのキーでRouting APIが使えない可能性があります。':'目的地や道路の設定を変えて試してください。')+'</div>'; });
 }
 function bad(r){ return r.traffic.filter(function(t){return t.kind==="acc"||t.kind==="cls";}).length; }
 // おすすめ：基本は一番早いルート。5分以内の遅れで500円以上安くなる、または事故・通行止めを避けられる場合だけ別のルートにする
@@ -945,14 +1027,14 @@ function drawCards(){
         (n.cls?'<span class="chip" style="background:var(--closed)">通行止 '+n.cls+'</span>':'')+
         (!n.acc&&!n.jam&&!n.cls?'<span class="chip" style="background:var(--ok)">順調</span>':'')+'</span>'+
       '<span class="sub num">'+fmtClock(arr)+'着・'+r.len.toFixed(1)+'km'+(r.delay>=60?'・渋滞で+'+fmtDur(r.delay):'')+
-        (r.toll>0?'・高速'+Math.round(r.toll)+'km 約'+r.yen.toLocaleString()+'円':'・高速道路なし')+(p.also?'<br>'+p.also.join("・")+'でも同じルート':'')+'</span>';
+        (r.g ? (r.toll ? (r.yen?'・有料 '+r.yen.toLocaleString()+'円':'・有料道路あり') : '・有料道路なし') : (r.toll>0?'・高速'+Math.round(r.toll)+'km 約'+r.yen.toLocaleString()+'円':'・高速道路なし'))+(p.also?'<br>'+p.also.join("・")+'でも同じルート':'')+'</span>';
     b.onclick=function(){ R.sel=i; drawCards(); pickRoute(i); };
     box.appendChild(b);
   });
   var cur=R.picks[R.sel].r;
   $("routeNote").textContent = (R.picks.length===1?"ほかに良いルート候補はありませんでした。":"")+
     (!R.hwy && cur.mw>0.5 ? "一般道だけのルートが見つからず、一部で高速道路を通ります。" : "")+
-    (cur.toll>0 ? "料金は高速道路（普通車）の目安です。首都高などの都市高速や割引は反映していません。" : "");
+    (cur.g ? (cur.toll ? "料金はGoogleの見積もり（ETC・普通車）です。" : "") : (cur.toll>0 ? "料金は高速道路（普通車）の目安です。首都高などの都市高速や割引は反映していません。" : ""));
   $("btnGo").hidden=!!R.swap; $("btnViewMap").hidden=false;
   if(R.swap) $("routeNote").textContent="入れ替え中は帰り道などの確認用です。案内を始めるときは⇅で元に戻してください。"+$("routeNote").textContent;
 }
@@ -1023,19 +1105,27 @@ function refreshNav(reroute){
   if(!R.nav) return;
   var o=origin(); R.lastReroute=Date.now();
   var mode=(/距離優先/.test(R.cur.k)?"&routeType=shortest":"&routeType=fastest")+(/料金優先/.test(R.cur.k)?"&avoid=tollRoads":"");
-  var best=fetch(routeUrl(o,R.dest.ll,mode)).then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); });
-  var keep=Promise.resolve(null);
+  var best, keep=Promise.resolve(null);
+  if(gKey){
+    var gopt={avoidTolls:!R.hwy||/料金優先/.test(R.cur.k),avoidHighways:!R.hwy};
+    best=gRoutes(o,R.dest.ll,gopt).then(function(rs){ return rs[0]||null; });
+    if(!reroute && me){ var ol=R.cur.r, rest0=ol.pts.slice(progressIdx(ol)), via=[];
+      for(var q=1;q<=20;q++){ var ix=Math.floor(rest0.length*q/21); if(rest0[ix]) via.push(rest0[ix]); }
+      if(via.length) keep=gRoutes(o,R.dest.ll,Object.assign({via:via},gopt)).then(function(rs){ return rs[0]||null; }).catch(function(){ return null; }); }
+  }else{
+  best=fetch(routeUrl(o,R.dest.ll,mode)).then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
+    .then(function(j){ return j.routes&&j.routes.length?parseRoute(j.routes[0]):null; });
   if(!reroute && me){
     var old=R.cur.r, bi=progressIdx(old), rest=old.pts.slice(bi), st=Math.max(1,Math.ceil(rest.length/150)), sp=[];
     for(var k=0;k<rest.length;k+=st) sp.push({latitude:rest[k][0],longitude:rest[k][1]});
     sp.push({latitude:rest[rest.length-1][0],longitude:rest[rest.length-1][1]});
     if(sp.length>=2) keep=fetch(routeUrl(o,R.dest.ll,mode+"&minDeviationDistance=0&minDeviationTime=0"),
       {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({supportingPoints:sp})})
-      .then(function(r){ return r.ok?r.json():null; }).catch(function(){ return null; });
+      .then(function(r){ return r.ok?r.json():null; }).then(function(j){ return j&&j.routes&&j.routes.length?parseRoute(j.routes[0]):null; }).catch(function(){ return null; });
+  }
   }
   Promise.all([best,keep]).then(function(js){
-    var b=js[0].routes&&js[0].routes.length?parseRoute(js[0].routes[0]):null;
-    var c=js[1]&&js[1].routes&&js[1].routes.length?parseRoute(js[1].routes[0]):null;
+    var b=js[0], c=js[1];
     if(!b&&!c) return;
     var use=c||b, why="";
     if(b && c && b.time<c.time-180 && differs(c,b)){
@@ -1113,7 +1203,7 @@ $("handle").onclick=function(){ setSheet($("handle").getAttribute("aria-expanded
 $("btnRefresh").onclick=function(){ refreshFlow(); load(); };
 $("btnLocate").onclick=locate;
 
-function openKey(){ $("keyInput").value=key; $("yjInput").value=yjId; $("keyPanel").hidden=false; }
+function openKey(){ $("keyInput").value=key; $("yjInput").value=yjId; $("gInput").value=gKey; $("keyPanel").hidden=false; }
 $("btnKey").onclick=openKey;
 $("btnPaste").onclick=function(){
   if(!navigator.clipboard||!navigator.clipboard.readText){ $("keyInput").focus(); return; }
@@ -1122,6 +1212,7 @@ $("btnPaste").onclick=function(){
   }).catch(function(){ $("btnPaste").textContent="欄を長押しして「貼り付け」を選んでください"; $("keyInput").focus(); });
 };
 $("closeKey").onclick=function(){ $("keyPanel").hidden=true; };
+$("gForm").addEventListener("submit",function(e){ e.preventDefault(); gKey=$("gInput").value.trim(); ls("g_key",gKey||null); $("gForm").querySelector("button").textContent=gKey?"保存しました":"保存"; });
 $("yjForm").addEventListener("submit",function(e){ e.preventDefault(); yjId=$("yjInput").value.trim(); ls("yj_id",yjId||null); $("yjForm").querySelector("button").textContent=yjId?"保存しました":"保存"; });
 $("keyForm").addEventListener("submit",function(e){ e.preventDefault(); key=$("keyInput").value.trim(); ls("tt_key",key||null); demo=false; $("keyPanel").hidden=true; setFlow(); load(); });
 $("btnDemo").onclick=function(){ demo=true; $("keyPanel").hidden=true; setFocus([35.681,139.767],"東京駅（サンプル）"); };
