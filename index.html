@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0d1418">
+<meta name="theme-color" content="#ffffff">
 <title>ハイウェイ・レーダー</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -11,9 +11,9 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <style>
 :root{
-  color-scheme:dark;
-  --asphalt:#0d1418; --deck:#152026; --deck2:#1d2b33; --line:#2a3a44;
-  --ink:#eef3f5; --muted:#8fa3ad;
+  color-scheme:light;
+  --asphalt:#f5f1e8; --deck:#ffffff; --deck2:#f0f2ef; --line:#dde2de;
+  --ink:#1c252b; --muted:#5f6d68;
   --sign:#0b7a4b; --sign-ink:#ffffff;        /* 高速道路の案内標識の緑 */
   --accident:#ff4d4f; --jam:#ff9f1a; --slow:#ffd23f; --closed:#b36bff; --works:#4db8ff; --ok:#3ddc84;
 }
@@ -26,13 +26,13 @@ button{font:inherit;color:inherit;cursor:pointer;-webkit-tap-highlight-color:tra
 button:focus-visible,input:focus-visible{outline:2px solid var(--slow);outline-offset:2px}
 
 #map{position:fixed;inset:0;background:var(--asphalt)}
-.maplibregl-ctrl-attrib{background:rgba(13,20,24,.7)!important;color:var(--muted)!important;font-size:10px}
+.maplibregl-ctrl-attrib{background:rgba(255,255,255,.8)!important;color:var(--muted)!important;font-size:10px}
 .maplibregl-ctrl-attrib a{color:var(--muted)!important}
-.maplibregl-ctrl-attrib-button{filter:invert(1)}
+
 
 /* ---- 上部：レーダー計器 ---- */
 .gauge{position:fixed;left:12px;right:12px;top:calc(10px + env(safe-area-inset-top,0px));z-index:1000;
-  display:flex;gap:12px;align-items:center;background:rgba(21,32,38,.92);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  display:flex;gap:12px;align-items:center;background:rgba(255,255,255,.94);box-shadow:0 4px 18px rgba(30,40,40,.15);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
   border:1px solid var(--line);border-radius:18px;padding:10px 12px;max-width:520px}
 .radar{flex:0 0 96px;height:96px}
 .radar text{font:700 9px "Barlow Semi Condensed",sans-serif;fill:var(--muted)}
@@ -49,9 +49,9 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--slow);outline-o
 /* ---- 右：操作ボタン ---- */
 .fabs{position:fixed;right:12px;z-index:1000;display:flex;flex-direction:column;gap:10px;
   bottom:calc(var(--sheet-h,168px) + 14px + env(safe-area-inset-bottom,0px));transition:bottom .25s}
-.fab{width:48px;height:48px;border-radius:14px;border:1px solid var(--line);background:var(--deck);display:grid;place-items:center;font-size:11px;font-weight:700;line-height:1.1;text-align:center}
+.fab{width:48px;height:48px;border-radius:14px;border:1px solid var(--line);background:var(--deck);box-shadow:0 2px 8px rgba(30,40,40,.15);display:grid;place-items:center;font-size:11px;font-weight:700;line-height:1.1;text-align:center}
 .fab svg{width:22px;height:22px}
-.fab.on{background:var(--sign);border-color:var(--sign)}
+.fab.on{background:var(--sign);border-color:var(--sign);color:#fff}
 .count.orb b{color:#ff6fd8}
 .orbis{width:24px;height:24px;border-radius:50%;background:#fff;border:3px solid #ff2d55;display:grid;place-items:center;font:700 11px "BIZ UDPGothic",sans-serif;color:#ff2d55;box-shadow:0 2px 6px rgba(0,0,0,.5);cursor:pointer}
 .alert{position:fixed;left:12px;right:12px;top:calc(10px + env(safe-area-inset-top,0px));z-index:1500;max-width:520px;
@@ -62,7 +62,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--slow);outline-o
   background:var(--slow);color:#1a1a1a;border:0;border-radius:999px;padding:8px 16px;font-weight:700;box-shadow:0 4px 14px rgba(0,0,0,.4)}
 
 /* ---- 下：シート（道路ごとの一覧） ---- */
-.sheet{position:fixed;left:0;right:0;bottom:0;z-index:1001;background:var(--deck);border-top:1px solid var(--line);
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:1001;background:var(--deck);box-shadow:0 -4px 18px rgba(30,40,40,.12);border-top:1px solid var(--line);
   border-radius:20px 20px 0 0;display:flex;flex-direction:column;height:var(--sheet-h,168px);transition:height .25s;
   padding-bottom:env(safe-area-inset-bottom,0px);max-width:560px;margin:0 auto}
 .handle{border:0;background:none;padding:10px 16px 6px;display:flex;flex-direction:column;align-items:center;gap:8px;width:100%}
@@ -89,7 +89,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--slow);outline-o
 .demo-flag{background:var(--slow);color:#1a1a1a;font-size:11px;font-weight:700;border-radius:4px;padding:1px 6px;margin-left:6px}
 
 /* ---- 設定・場所パネル ---- */
-.panel{position:fixed;inset:0;z-index:2000;background:rgba(5,9,11,.6);display:flex;align-items:flex-end;justify-content:center}
+.panel{position:fixed;inset:0;z-index:2000;background:rgba(20,30,30,.35);display:flex;align-items:flex-end;justify-content:center}
 .panel-card{background:var(--deck);width:100%;max-width:560px;border-radius:20px 20px 0 0;padding:20px 16px calc(20px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:14px;max-height:90%;overflow-y:auto}
 .panel-card h3{margin:0;font-size:18px}
 .panel-card p{margin:0;color:var(--muted);font-size:13px}
@@ -106,9 +106,9 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--slow);outline-o
 
 .me{width:18px;height:18px;border-radius:50%;background:#4db8ff;border:3px solid #fff;box-shadow:0 0 0 0 rgba(77,184,255,.7);animation:ping 2s infinite}
 @keyframes ping{70%{box-shadow:0 0 0 16px rgba(77,184,255,0)}100%{box-shadow:0 0 0 0 rgba(77,184,255,0)}}
-.pin{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font:700 12px "BIZ UDPGothic",sans-serif;color:#111;border:2px solid #0d1418;box-shadow:0 2px 6px rgba(0,0,0,.5);cursor:pointer}
+.pin{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font:700 12px "BIZ UDPGothic",sans-serif;color:#111;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35);cursor:pointer}
 .pinwrap{display:flex;align-items:center;gap:4px;cursor:pointer}
-.pinlbl{display:flex;align-items:center;gap:4px;background:rgba(13,20,24,.85);border-radius:6px;padding:2px 6px 2px 3px;font-size:12px;font-weight:700;white-space:nowrap}
+.pinlbl{display:flex;align-items:center;gap:4px;background:rgba(255,255,255,.95);box-shadow:0 1px 4px rgba(0,0,0,.25);border-radius:6px;padding:2px 6px 2px 3px;font-size:12px;font-weight:700;white-space:nowrap}
 .pinlbl .e-no{font-size:12px}
 .maplibregl-popup-content{background:var(--deck);color:var(--ink);font-size:13px;border-radius:10px;padding:10px 12px}
 .maplibregl-popup-tip{border-top-color:var(--deck)!important;border-bottom-color:var(--deck)!important}
@@ -129,9 +129,9 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--slow);outline-o
   <svg class="radar" viewBox="0 0 100 100" aria-hidden="true">
     <defs><radialGradient id="rg" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#0b7a4b" stop-opacity=".35"/><stop offset="1" stop-color="#0b7a4b" stop-opacity="0"/></radialGradient>
       <linearGradient id="sw" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#3ddc84" stop-opacity="0"/><stop offset="1" stop-color="#3ddc84" stop-opacity=".45"/></linearGradient></defs>
-    <circle cx="50" cy="50" r="46" fill="url(#rg)" stroke="#2a3a44"/>
-    <circle cx="50" cy="50" r="30.7" fill="none" stroke="#2a3a44" stroke-dasharray="2 3"/>
-    <circle cx="50" cy="50" r="15.3" fill="none" stroke="#2a3a44" stroke-dasharray="2 3"/>
+    <circle cx="50" cy="50" r="46" fill="url(#rg)" stroke="#cfd6d2"/>
+    <circle cx="50" cy="50" r="30.7" fill="none" stroke="#cfd6d2" stroke-dasharray="2 3"/>
+    <circle cx="50" cy="50" r="15.3" fill="none" stroke="#cfd6d2" stroke-dasharray="2 3"/>
     <path class="sweep" d="M50 50 L96 50 A46 46 0 0 0 82.5 17.5 Z" fill="url(#sw)"/>
     <text x="50" y="9" text-anchor="middle">N</text>
     <text x="52" y="33" id="rLabel">30</text>
@@ -168,7 +168,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--slow);outline-o
     <span class="sheet-head"><h2 id="listTitle">高速道路の事故・渋滞（近い順）</h2><span class="num" id="updated" style="color:var(--muted);font-size:12px"></span></span>
   </button>
   <div style="padding:0 12px 8px;display:flex;justify-content:space-between;align-items:center;gap:8px">
-    <div class="legend" aria-label="凡例"><i style="background:var(--ok)"></i>順調<i style="background:var(--slow)"></i>混雑<i style="background:var(--jam)"></i>渋滞<i style="background:var(--accident)"></i>ほぼ停止</div>
+    <div class="legend" aria-label="凡例"><i style="background:#f39a1e"></i>混雑<i style="background:#e8302a"></i>渋滞<i style="background:var(--closed)"></i>通行止</div>
     <button class="btn ghost" id="btnRefresh" type="button" style="padding:6px 12px;font-size:13px">更新</button>
   </div>
   <div class="list" id="list"></div>
@@ -255,14 +255,17 @@ var map = new maplibregl.Map({
       gsi:{type:"vector",url:"pmtiles://https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/optimal_bvmap-v1.pmtiles",
       attribution:'<a href="https://github.com/gsi-cyberjapan/optimal_bvmap" target="_blank" rel="noopener">国土地理院ベクトルタイル</a>'}},
     layers:[
-      {id:"bg",type:"background",paint:{"background-color":"#0d1418"}},
-      {id:"land",type:"raster",source:"blank",paint:{"raster-opacity":0.12,"raster-saturation":-1}},
-      {id:"coast",type:"line",source:"gsi","source-layer":"Cstline",paint:{"line-color":"#3a4f5b","line-width":1}},
-      {id:"pref",type:"line",source:"gsi","source-layer":"AdmBdry",maxzoom:10,paint:{"line-color":"#24343d","line-width":.8,"line-dasharray":[3,2]}},
+      {id:"sea",type:"background",paint:{"background-color":["step",["zoom"],"#bcd8ef",8,"#f5f1e8"]}},
+      {id:"land",type:"fill",source:"gsi","source-layer":"AdmArea",paint:{"fill-color":"#f5f1e8"}},
+      {id:"water",type:"fill",source:"gsi","source-layer":"WA",paint:{"fill-color":"#bcd8ef"}},
+      {id:"coast",type:"line",source:"gsi","source-layer":"Cstline",paint:{"line-color":"#8fb6d8","line-width":1}},
+      {id:"pref",type:"line",source:"gsi","source-layer":"AdmBdry",maxzoom:11,paint:{"line-color":"#c9c2b3","line-width":1,"line-dasharray":[4,2]}},
+      {id:"road",type:"line",source:"gsi","source-layer":"RdCL",minzoom:9,filter:["all",["!",MOTORWAY],["in",["get","vt_rdctg"],["literal",["国道","主要道路"]]]],
+        layout:{"line-cap":"round","line-join":"round"},paint:{"line-color":"#e2dccd","line-width":["interpolate",["linear"],["zoom"],9,1,14,4]}},
       {id:"hwy-case",type:"line",source:"gsi","source-layer":"RdCL",filter:MOTORWAY,layout:{"line-cap":"round","line-join":"round"},
-        paint:{"line-color":"#0d1418","line-width":["interpolate",["linear"],["zoom"],5,2.5,10,6,14,12]}},
+        paint:{"line-color":"#27323a","line-width":["interpolate",["linear"],["zoom"],5,3,9,6,12,10,15,16]}},
       {id:"hwy",type:"line",source:"gsi","source-layer":"RdCL",filter:MOTORWAY,layout:{"line-cap":"round","line-join":"round"},
-        paint:{"line-color":"#56707e","line-width":["interpolate",["linear"],["zoom"],5,1.2,10,3,14,7]}}
+        paint:{"line-color":"#ffffff","line-width":["interpolate",["linear"],["zoom"],5,1.4,9,3.6,12,6.5,15,11]}}
     ]
   }
 });
@@ -285,20 +288,29 @@ map.on("load",function(){
   map.addImage("shield", shieldImage(), {pixelRatio:2, stretchX:[[16,32]], stretchY:[[16,32]], content:[10,8,38,40]});
   map.addSource("ring",{type:"geojson",data:EMPTY});
   map.addSource("inc",{type:"geojson",data:EMPTY});
-  map.addLayer({id:"ring",type:"line",source:"ring",paint:{"line-color":"#3ddc84","line-opacity":.35,"line-width":1,"line-dasharray":[3,4]}});
+  map.addLayer({id:"ring",type:"line",source:"ring",paint:{"line-color":"#0b7a4b","line-opacity":.45,"line-width":1,"line-dasharray":[3,4]}});
   map.addLayer({id:"inc-line",type:"line",source:"inc",filter:["==",["geometry-type"],"LineString"],layout:{"line-cap":"round","line-join":"round"},
     paint:{"line-color":["get","color"],"line-width":["interpolate",["linear"],["zoom"],6,4,12,8],"line-opacity":.95}});
-  // 路線名・番号・IC名
-  map.addLayer({id:"lbl-no",type:"symbol",source:"gsi","source-layer":"Anno",filter:["==",ANNO_CODE,2904],
-    layout:{"text-field":ANNO_TEXT,"text-font":["NotoSansJP-Regular"],"text-size":12,"icon-image":"shield","icon-text-fit":"both",
-      "icon-text-fit-padding":[1,3,1,3],"symbol-sort-key":1,"text-allow-overlap":false},
-    paint:{"text-color":"#ffffff"}});
+  // 路線名・番号・IC/JCT/SA/PA名
+  var IC=["in",ANNO_CODE,["literal",[2941,2942,2945]]], SAPA=["in",ANNO_CODE,["literal",[2943,2944]]];
+  map.addLayer({id:"ic-dot",type:"circle",source:"gsi","source-layer":"Anno",minzoom:8,filter:["all",["==",["geometry-type"],"Point"],["any",IC,SAPA]],
+    paint:{"circle-radius":["interpolate",["linear"],["zoom"],8,3,13,5.5],"circle-color":["case",SAPA,"#5bb4f0","#1c252b"],"circle-stroke-color":"#ffffff","circle-stroke-width":1.5}});
+  map.addLayer({id:"lbl-ic",type:"symbol",source:"gsi","source-layer":"Anno",minzoom:8,filter:["all",["==",["geometry-type"],"Point"],["any",IC,SAPA]],
+    layout:{"text-field":ANNO_TEXT,"text-font":["NotoSansJP-Regular"],"text-size":["interpolate",["linear"],["zoom"],8,11,13,13],
+      "text-anchor":"left","text-offset":[0.7,0],"text-variable-anchor":["left","right","top","bottom"],"text-radial-offset":0.7,"symbol-sort-key":3},
+    paint:{"text-color":["case",SAPA,"#1a73c9","#1c252b"],"text-halo-color":"#ffffff","text-halo-width":2}});
   map.addLayer({id:"lbl-name",type:"symbol",source:"gsi","source-layer":"Anno",filter:["all",["==",ANNO_CODE,411],HWY_NAME],
-    layout:{"text-field":ANNO_TEXT,"text-font":["NotoSansJP-Regular"],"text-size":["interpolate",["linear"],["zoom"],6,11,12,14],"symbol-sort-key":2},
-    paint:{"text-color":"#bfe8d2","text-halo-color":"#0d1418","text-halo-width":2}});
-  map.addLayer({id:"lbl-ic",type:"symbol",source:"gsi","source-layer":"Anno",minzoom:9,filter:["all",[">=",ANNO_CODE,2941],["<=",ANNO_CODE,2945]],
-    layout:{"text-field":ANNO_TEXT,"text-font":["NotoSansJP-Regular"],"text-size":11,"symbol-sort-key":3},
-    paint:{"text-color":"#93a9b4","text-halo-color":"#0d1418","text-halo-width":1.5}});
+    layout:{"text-field":ANNO_TEXT,"text-font":["NotoSansJP-Regular"],"text-size":["interpolate",["linear"],["zoom"],6,12,12,15],
+      "symbol-placement":"line-center","text-letter-spacing":0.05},
+    paint:{"text-color":"#1560b8","text-halo-color":"#ffffff","text-halo-width":2.5}});
+  map.setFilter("lbl-name",["all",["==",ANNO_CODE,411],HWY_NAME,["==",["geometry-type"],"LineString"]]);
+  map.addLayer({id:"lbl-name-pt",type:"symbol",source:"gsi","source-layer":"Anno",filter:["all",["==",ANNO_CODE,411],HWY_NAME,["==",["geometry-type"],"Point"]],
+    layout:{"text-field":ANNO_TEXT,"text-font":["NotoSansJP-Regular"],"text-size":["interpolate",["linear"],["zoom"],6,12,12,15],"symbol-sort-key":1},
+    paint:{"text-color":"#1560b8","text-halo-color":"#ffffff","text-halo-width":2.5}});
+  map.addLayer({id:"lbl-no",type:"symbol",source:"gsi","source-layer":"Anno",filter:["all",["==",ANNO_CODE,2904],["==",["geometry-type"],"Point"]],
+    layout:{"text-field":ANNO_TEXT,"text-font":["NotoSansJP-Regular"],"text-size":12,"icon-image":"shield","icon-text-fit":"both",
+      "icon-text-fit-padding":[1,3,1,3],"symbol-sort-key":2},
+    paint:{"text-color":"#ffffff"}});
   ready=true;
   setFlow();
   if(focus) drawFocus(false);
@@ -314,11 +326,11 @@ function setFlow(){
   if(!key) return;
   map.addSource("flow",{type:"vector",tiles:[flowUrl()],maxzoom:18,attribution:"交通情報 &copy; TomTom"});
   var lvl=["to-number",["get","traffic_level"],1];
-  map.addLayer({id:"flow",type:"line",source:"flow","source-layer":"Traffic flow",filter:["==",["get","road_type"],"Motorway"],
+  map.addLayer({id:"flow",type:"line",source:"flow","source-layer":"Traffic flow",filter:["all",["==",["get","road_type"],"Motorway"],["any",["<",["to-number",["get","traffic_level"],1],0.75],["==",["to-string",["get","road_closure"]],"true"]]],
     layout:{"line-cap":"round","line-join":"round"},
     paint:{"line-color":["case",["==",["to-string",["get","road_closure"]],"true"],"#b36bff",
-      ["step",lvl,"#ff4d4f",0.25,"#ff9f1a",0.5,"#ffd23f",0.75,"#3ddc84"]],
-      "line-width":["interpolate",["linear"],["zoom"],5,1.5,10,3.5,14,7]}}, "inc-line");
+      ["step",lvl,"#e8302a",0.5,"#f39a1e"]],
+      "line-width":["interpolate",["linear"],["zoom"],5,1.4,9,3.6,12,6.5,15,11]}}, "ic-dot");
 }
 function refreshFlow(){ var s=map.getSource("flow"); if(s && s.setTiles) s.setTiles([flowUrl()]); }
 
@@ -486,7 +498,7 @@ function render(){
     var d=Math.min(r.dist,RADIUS_KM)/RADIUS_KM*46, a=bearing(focus,r.near);
     var c=document.createElementNS("http://www.w3.org/2000/svg","circle");
     c.setAttribute("cx",(50+d*Math.sin(a)).toFixed(1)); c.setAttribute("cy",(50-d*Math.cos(a)).toFixed(1)); c.setAttribute("r",r.cat.k==="acc"?3.6:2.6);
-    c.setAttribute("fill",r.cat.h); c.setAttribute("stroke","#0d1418"); c.setAttribute("stroke-width","1");
+    c.setAttribute("fill",r.cat.h); c.setAttribute("stroke","#ffffff"); c.setAttribute("stroke-width","1");
     g.appendChild(c);
   });
 
