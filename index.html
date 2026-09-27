@@ -74,6 +74,12 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--slow);outline-o
 .rcard .big{font-size:22px;font-weight:700;line-height:1.1}
 .rcard .sub{font-size:12px;color:var(--muted)}
 .rcard .warn{grid-row:span 2;display:flex;flex-direction:column;align-items:flex-end;gap:3px;font-size:12px;font-weight:700}
+.steps{margin-top:8px;border:1px solid var(--line);border-radius:12px;background:var(--deck)}
+.steps summary{padding:10px 12px;font-weight:700;font-size:14px;cursor:pointer}
+.steps ol{list-style:none;margin:0;padding:0 12px 8px;max-height:40vh;overflow:auto}
+.steps li{display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--line);font-size:14px;line-height:1.4}
+.steps li b{min-width:58px;color:var(--muted);font-weight:700;font-size:12px;padding-top:2px}
+.steps li small{display:block;color:var(--muted);font-size:12px}
 .chip{border-radius:6px;padding:1px 7px;color:#fff;white-space:nowrap}
 .navbar{position:fixed;left:12px;right:12px;top:calc(10px + env(safe-area-inset-top,0px));z-index:1000;max-width:520px;background:var(--sign);color:#fff;
   border-radius:18px;padding:12px 16px;display:flex;align-items:center;gap:14px;box-shadow:0 4px 18px rgba(0,0,0,.25)}
@@ -220,7 +226,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--slow);outline-o
 
 <div class="navbar" id="navBar" hidden>
   <div class="eta"><small>到着予定</small><b class="num" id="navEta">--:--</b></div>
-  <div class="nstat" id="navStat">ルートを確認中<small id="navSub"></small></div>
+  <div class="nstat" id="navStat">ルートを確認中<small id="navNext"></small><small id="navSub"></small></div>
   <button type="button" id="navEnd">終了</button>
 </div>
 
@@ -238,6 +244,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--slow);outline-o
       <button type="button" id="rGen" aria-pressed="false">一般道のみ</button>
     </div>
     <div class="rcards" id="rCards"></div>
+    <details class="steps" id="rSteps" hidden><summary id="rStepsSum">道順</summary><ol id="rStepsList"></ol></details>
     <p id="routeNote"></p>
     <div class="row"><button class="btn" id="btnGo" type="button" hidden>このルートで出発</button><button class="btn ghost" id="closeRoute" type="button">閉じる</button></div>
   </div>
@@ -341,6 +348,12 @@ map.once("style.load",function(){
   map.addLayer({id:"ring",type:"line",source:"ring",paint:{"line-color":"#0b7a4b","line-opacity":.45,"line-width":1,"line-dasharray":[3,4]}});
   map.addLayer({id:"inc-line",type:"line",source:"inc",filter:["==",["geometry-type"],"LineString"],layout:{"line-cap":"round","line-join":"round"},
     paint:{"line-color":["get","color"],"line-width":["interpolate",["linear"],["zoom"],6,4,12,8],"line-opacity":.95}});
+  // ルート表示中だけ出す一般道の詳細（細い道と道路名）
+  map.addLayer({id:"road-detail",type:"line",source:"gsi","source-layer":"RdCL",minzoom:11,filter:["all",["!",MOTORWAY],["!",["in",["get","vt_rdctg"],["literal",["国道","主要道路"]]]]],
+    layout:{"line-cap":"round","line-join":"round",visibility:"none"},paint:{"line-color":"#e6e0d2","line-width":["interpolate",["linear"],["zoom"],11,0.6,16,4]}},"road");
+  map.addLayer({id:"lbl-road",type:"symbol",source:"gsi","source-layer":"Anno",minzoom:10,filter:["all",["==",ANNO_CODE,411],["!",HWY_NAME]],
+    layout:{visibility:"none","text-field":ANNO_TEXT,"text-font":["NotoSansJP-Regular"],"text-size":12,"symbol-placement":"line","symbol-sort-key":5},
+    paint:{"text-color":"#6b5a3a","text-halo-color":"#ffffff","text-halo-width":2}});
   // 路線名・番号・IC/JCT/SA/PA名
   var IC=["in",ANNO_CODE,["literal",[2941,2942,2945]]], SAPA=["in",ANNO_CODE,["literal",[2943,2944]]];
   map.addLayer({id:"ic-dot",type:"circle",source:"gsi","source-layer":"Anno",minzoom:8,filter:["all",["==",["geometry-type"],"Point"],["any",IC,SAPA]],
@@ -423,7 +436,7 @@ function noLocation(){
   if(!focus) setFocus([35.68,139.77],"東京周辺");
 }
 if(navigator.geolocation){
-  navigator.geolocation.watchPosition(function(p){ me=[p.coords.latitude,p.coords.longitude]; if(meMarker) placeMe(); checkOrbis(p.coords); },function(){}, {enableHighAccuracy:true,maximumAge:30000});
+  navigator.geolocation.watchPosition(function(p){ me=[p.coords.latitude,p.coords.longitude]; if(meMarker) placeMe(); checkOrbis(p.coords); if(typeof navTick==="function") navTick(p.coords); },function(){}, {enableHighAccuracy:true,maximumAge:30000});
 }
 
 // ---- 事故・渋滞データ ----
@@ -647,10 +660,35 @@ function searchPlaces(q,o,typing){
     .then(function(r){ if(!r.ok) throw new Error("OSM "+r.status); return r.json(); })
     .then(function(a){ return a.map(function(x){ var parts=(x.display_name||"").split(",").map(function(t){return t.trim();});
       return {name:x.name||parts[0], addr:parts.slice(1).reverse().filter(function(t){return !/^\d{3}-?\d{4}$/.test(t)&&t!=="日本";}).join(""), ll:[+x.lat,+x.lon]}; }); });
-  var gsi=fetch("https://msearch.gsi.go.jp/address-search/AddressSearch?q="+encodeURIComponent(q))
+  var gsiRaw=fetch("https://msearch.gsi.go.jp/address-search/AddressSearch?q="+encodeURIComponent(q))
     .then(function(r){ return r.json(); })
-    .then(function(a){ return (a||[]).slice(0,5).map(function(x){ return {name:x.properties.title, addr:"住所・地名", ll:[x.geometry.coordinates[1],x.geometry.coordinates[0]]}; }); });
-  return Promise.all([tomtom,tomtom2,photon,osm,gsi].map(function(p){ return p.then(function(v){return {ok:true,v:v};},function(e){return {ok:false,e:String(e.message||e)};}); }))
+    .then(function(a){ return (a||[]).map(function(x){ return {name:x.properties.title, addr:"住所・地名", ll:[x.geometry.coordinates[1],x.geometry.coordinates[0]]}; }); });
+  var gsi=gsiRaw.then(function(a){ return a.slice(0,5); });
+  // 「館山カントリー」のように地名で始まる入力は、その地名の周りに絞って施設を探す
+  var area=gsiRaw.then(function(a){
+    var anchors=[];
+    a.forEach(function(c){
+      var t=c.name.replace(/^.+?[都道府県]/,""), stems=[t.replace(/[市町村区]$/,""), t.replace(/^.*[市町村区郡]/,"")];
+      stems.forEach(function(st){ if(st.length>=2 && q.indexOf(st)===0 && q.length>st.length && anchors.length<3 && !anchors.some(function(x){ return km(x.ll,c.ll)<5; })) anchors.push({ll:c.ll,rest:q.slice(st.length)}); });
+    });
+    if(o) anchors.sort(function(x,y){ return km(o,x.ll)-km(o,y.ll); });
+    return Promise.all(anchors.map(function(an){
+      var near2="&lat="+an.ll[0]+"&lon="+an.ll[1]+"&radius=30000";
+      var jobs=[fetch(tt("/search/2/poiSearch/"+encodeURIComponent(q)+".json","language=ja-JP&countrySet=JP&limit=5"+near2+(typing?"&typeahead=true":"")))
+        .then(function(r){ if(!r.ok) throw new Error("TomTom "+r.status); return r.json(); })
+        .then(function(j){ return (j.results||[]).map(function(x){ return {name:(x.poi&&x.poi.name)||x.address.freeformAddress, addr:x.address.freeformAddress||"", ll:[x.position.lat,x.position.lon]}; }); })];
+      // OpenStreetMap の施設名（地名を除いた部分）で周辺を探す。確定時のみ
+      if(!typing && an.rest.length>=2){
+        var ql='[out:json][timeout:15];nwr["name"~"'+an.rest.replace(/[\\"\[\]().*+?^$|{}]/g,"")+'"](around:30000,'+an.ll[0]+','+an.ll[1]+');out center 10;';
+        jobs.push(fetch("https://overpass-api.de/api/interpreter",{method:"POST",body:"data="+encodeURIComponent(ql),headers:{"Content-Type":"application/x-www-form-urlencoded"}})
+          .then(function(r){ return r.json(); })
+          .then(function(j){ return (j.elements||[]).map(function(e){ var la=e.lat!=null?e.lat:(e.center||{}).lat, lo=e.lon!=null?e.lon:(e.center||{}).lon;
+            var tg=e.tags||{}; return {name:tg.name, addr:[tg["addr:province"],tg["addr:city"]].filter(Boolean).join("")||"OpenStreetMap", ll:[la,lo]}; }).filter(function(c){ return c.name&&c.ll[0]!=null; }); }).catch(function(){ return []; }));
+      }
+      return Promise.all(jobs.map(function(p){ return p.catch(function(){ return []; }); })).then(function(rs){ return [].concat.apply([],rs); });
+    })).then(function(rs){ return [].concat.apply([],rs); });
+  });
+  return Promise.all([area,tomtom,tomtom2,photon,osm,gsi].map(function(p){ return p.then(function(v){return {ok:true,v:v};},function(e){return {ok:false,e:String(e.message||e)};}); }))
     .then(function(rs){
       var out=[], errs=[];
       rs.forEach(function(r){ if(!r.ok){ errs.push(r.e); return; }
@@ -692,7 +730,7 @@ $("routeForm").addEventListener("submit",function(e){
 function routeUrl(o,d,extra){
   var av = R.hwy ? "" : "&avoid=tollRoads&avoid=motorways";
   return tt("/routing/1/calculateRoute/"+o[0]+","+o[1]+":"+d[0]+","+d[1]+"/json",
-    "traffic=true&travelMode=car&language=ja-JP&sectionType=traffic&sectionType=tollRoad&computeTravelTimeFor=all"+av+(extra||""));
+    "traffic=true&travelMode=car&language=ja-JP&instructionsType=text&sectionType=traffic&sectionType=tollRoad&computeTravelTimeFor=all"+av+(extra||""));
 }
 function parseRoute(rt){
   var pts=[]; (rt.legs||[]).forEach(function(l){ (l.points||[]).forEach(function(p){ pts.push([p.latitude,p.longitude]); }); });
@@ -707,14 +745,38 @@ function parseRoute(rt){
         at:cum[sc.startPointIndex],len:cum[sc.endPointIndex]-cum[sc.startPointIndex]});
     }
   });
+  var steps=(((rt.guidance||{}).instructions)||[]).filter(function(g){ return g.point; }).map(function(g){
+    var road=(g.roadNumbers||[]).join("・")||g.street||g.signpostText||"";
+    return {off:(g.routeOffsetInMeters||0)/1000, msg:g.message||(MAN[g.maneuver]||"道なり")+(road?"（"+road+"）":""), road:road, man:g.maneuver||"", ll:[g.point.latitude,g.point.longitude]}; });
   var sm=rt.summary||{};
-  return {pts:pts,cum:cum,toll:toll,yen:tollYen(toll),traffic:traffic,time:sm.travelTimeInSeconds,delay:sm.trafficDelayInSeconds||0,
+  return {steps:steps,pts:pts,cum:cum,toll:toll,yen:tollYen(toll),traffic:traffic,time:sm.travelTimeInSeconds,delay:sm.trafficDelayInSeconds||0,
     len:(sm.lengthInMeters||0)/1000,arrive:sm.arrivalTime?new Date(sm.arrivalTime):null};
+}
+var MAN={DEPART:"出発",ARRIVE:"目的地に到着",ARRIVE_LEFT:"目的地に到着（左側）",ARRIVE_RIGHT:"目的地に到着（右側）",TURN_LEFT:"左折",TURN_RIGHT:"右折",
+  SHARP_LEFT:"左に大きく曲がる",SHARP_RIGHT:"右に大きく曲がる",BEAR_LEFT:"左方向",BEAR_RIGHT:"右方向",KEEP_LEFT:"左側を進む",KEEP_RIGHT:"右側を進む",STRAIGHT:"直進",
+  MOTORWAY_ENTER:"高速道路に入る",MOTORWAY_EXIT_LEFT:"左の出口で降りる",MOTORWAY_EXIT_RIGHT:"右の出口で降りる",TAKE_EXIT:"出口で降りる",
+  ROUNDABOUT_LEFT:"ロータリーを左へ",ROUNDABOUT_RIGHT:"ロータリーを右へ",ROUNDABOUT_CROSS:"ロータリーを直進",MAKE_UTURN:"Uターン",TRY_MAKE_UTURN:"Uターン",FOLLOW:"道なり",
+  SWITCH_PARALLEL_ROAD:"側道へ",SWITCH_MAIN_ROAD:"本線へ",ENTRANCE_RAMP:"ランプに入る",WAYPOINT_LEFT:"経由地",WAYPOINT_RIGHT:"経由地",WAYPOINT_REACHED:"経由地"};
+function fmtKm(k){ return k<1 ? Math.max(10,Math.round(k*100)*10)+"m" : k.toFixed(k<10?1:0)+"km"; }
+function drawSteps(r){
+  var box=$("rStepsList"); box.innerHTML="";
+  if(!r||!r.steps.length){ $("rSteps").hidden=true; return; }
+  $("rSteps").hidden=false; $("rStepsSum").textContent="道順（"+r.steps.length+"か所）";
+  r.steps.forEach(function(st){
+    var li=document.createElement("li");
+    li.innerHTML='<b class="num">'+(st.off>0?fmtKm(st.off):"出発")+'</b><span>'+esc(st.msg)+(st.road&&st.msg.indexOf(st.road)<0?'<small>'+esc(st.road)+'</small>':'')+'</span>';
+    li.onclick=function(){ map.easeTo({center:[st.ll[1],st.ll[0]],zoom:16}); };
+    box.appendChild(li);
+  });
+}
+function setDetail(on){
+  if(!ready) return;
+  ["road-detail","lbl-road"].forEach(function(id){ if(map.getLayer(id)) map.setLayoutProperty(id,"visibility",on?"visible":"none"); });
 }
 function sig(r){ return Math.round(r.len*10)+"_"+Math.round(r.time/60); }
 function searchRoutes(){
   var o=origin(); if(!o||!R.dest) return;
-  $("rCards").innerHTML='<div class="empty">ルートを探しています…</div>'; $("btnGo").hidden=true; $("routeNote").textContent="";
+  $("rCards").innerHTML='<div class="empty">ルートを探しています…</div>'; $("btnGo").hidden=true; $("routeNote").textContent=""; $("rSteps").hidden=true;
   var reqs=[fetch(routeUrl(o,R.dest.ll,"&routeType=fastest&maxAlternatives=2")).then(function(r){ if(!r.ok) throw new Error("TomTom "+r.status); return r.json();})];
   if(R.hwy) reqs.push(fetch(routeUrl(o,R.dest.ll,"&routeType=fastest&avoid=tollRoads")).then(function(r){return r.json();}).catch(function(){return {};}));
   else reqs.push(fetch(routeUrl(o,R.dest.ll,"&routeType=shortest")).then(function(r){return r.json();}).catch(function(){return {};}));
@@ -768,8 +830,9 @@ function ensureRouteLayers(){
 var KCOL={acc:"#ff4d4f",jam:"#ff9f1a",cls:"#b36bff",works:"#4db8ff",etc:"#ffd23f"}, KNAME={acc:"事故",jam:"渋滞",cls:"通行止",works:"工事",etc:"注意"};
 function lineOf(pts){ return pts.map(function(p){return [p[1],p[0]];}); }
 function pickRoute(i, noFit){
-  ensureRouteLayers();
+  ensureRouteLayers(); setDetail(true);
   var main=R.picks[i].r, feats=[];
+  drawSteps(main);
   R.picks.forEach(function(p){ if(p.r!==main) feats.push({type:"Feature",properties:{role:"alt"},geometry:{type:"LineString",coordinates:lineOf(p.r.pts)}}); });
   feats.push({type:"Feature",properties:{role:"main"},geometry:{type:"LineString",coordinates:lineOf(main.pts)}});
   main.traffic.forEach(function(t){ if(t.e>t.s) feats.push({type:"Feature",properties:{role:"traffic",color:KCOL[t.kind]},geometry:{type:"LineString",coordinates:lineOf(main.pts.slice(t.s,t.e+1))}}); });
@@ -781,6 +844,7 @@ function pickRoute(i, noFit){
     map.fitBounds(bb,{padding:$("routePanel").hidden?pad():{top:40,bottom:Math.round(window.innerHeight*0.6),left:30,right:30},maxZoom:14}); }
 }
 function clearRoute(){
+  setDetail(false);
   if(map.getSource("route")) map.getSource("route").setData(EMPTY);
   routeMarkers.forEach(function(m){m.remove();}); routeMarkers=[];
 }
@@ -809,12 +873,23 @@ function notify(text){
   clearTimeout(R.alertT); R.alertT=setTimeout(function(){ $("orbAlert").hidden=true; $("orbAlert").style.background=""; },12000);
 }
 function progressIdx(r){ var o=me; if(!o) return 0; var bi=0,bd=1e9; for(var i=0;i<r.pts.length;i+=Math.max(1,Math.floor(r.pts.length/400))){ var d=km(o,r.pts[i]); if(d<bd){bd=d;bi=i;} } return bi; }
-function refreshNav(){
+function refreshNav(reroute){
   if(!R.nav) return;
-  var o=origin();
+  var o=origin(); R.lastReroute=Date.now();
   fetch(routeUrl(o,R.dest.ll,(R.cur.k==="距離優先"?"&routeType=shortest":"&routeType=fastest")+(R.cur.k==="料金優先"?"&avoid=tollRoads":""))).then(function(r){return r.json();})
-  .then(function(j){ if(!j.routes||!j.routes.length) return; var r=parseRoute(j.routes[0]); R.cur={k:R.cur.k,r:r}; R.picks[R.sel]=R.cur; showNav(r,false); })
+  .then(function(j){ if(!j.routes||!j.routes.length) return; var r=parseRoute(j.routes[0]); R.cur={k:R.cur.k,r:r}; R.picks[R.sel]=R.cur; showNav(r,false); if(reroute===true) notify("ルートを外れたため、新しいルートに切り替えました"); })
   .catch(function(){ $("navSub").textContent="更新できませんでした（通信を確認）"; });
+}
+// 走行中：次の曲がり角を表示し、ルートから外れたらすぐ再探索する
+function navTick(c){
+  if(!R.nav||!R.cur||!me) return;
+  var r=R.cur.r, bi=0, bd=1e9;
+  for(var i=0;i<r.pts.length;i++){ var d=km(me,r.pts[i]); if(d<bd){ bd=d; bi=i; } }
+  var done=r.cum[bi]||0, nx=null;
+  for(var j=0;j<r.steps.length;j++){ if(r.steps[j].off>done+0.02 && r.steps[j].man!=="DEPART"){ nx=r.steps[j]; break; } }
+  $("navNext").textContent = nx ? "次："+fmtKm(nx.off-done)+"先 "+nx.msg : "";
+  var acc=(c&&c.accuracy)||50;
+  if(bd>Math.max(0.15,acc/1000*1.5) && Date.now()-(R.lastReroute||0)>15000) refreshNav(true);
 }
 function showNav(r, first){
   var arr=r.arrive||new Date(Date.now()+r.time*1000);
@@ -830,7 +905,7 @@ function showNav(r, first){
   if(fresh.length){ var t=fresh.sort(function(a,b){return a.at-b.at;})[0]; notify(Math.round(t.at)+"km先で"+KNAME[t.kind]+"が発生"+(t.delay>=60?"（+"+fmtDur(t.delay)+"）":"")); }
   else if(!first && R.lastDelay!=null && r.delay-R.lastDelay>=300) notify("渋滞が悪化し、到着が"+fmtDur(r.delay-R.lastDelay)+"遅れる見込みです");
   R.lastDelay=r.delay;
-  pickRoute(R.sel, !first);
+  pickRoute(R.sel, !first); navTick();
   // 下の一覧をルート上のできごとにする
   var list=$("list"); list.innerHTML="";
   var ev=r.traffic.filter(function(t){return t.kind!=="etc";}).sort(function(a,b){return a.at-b.at;});
@@ -843,6 +918,12 @@ function showNav(r, first){
     b.onclick=function(){ var bb=new maplibregl.LngLatBounds(); r.pts.slice(t.s,t.e+1).forEach(function(p){bb.extend([p[1],p[0]]);}); map.fitBounds(bb,{padding:pad(),maxZoom:14}); setSheet(false); };
     list.appendChild(b);
   });
+  if(r.steps.length){
+    var h=document.createElement("div"); h.className="empty"; h.style.textAlign="left"; h.style.fontWeight="700"; h.textContent="道順"; list.appendChild(h);
+    var d=document.createElement("details"); d.className="steps"; d.open=true; d.innerHTML='<summary>'+r.steps.length+'か所</summary>'; d.appendChild($("rStepsList").cloneNode(true)); d.querySelector("ol").removeAttribute("id");
+    Array.prototype.forEach.call(d.querySelectorAll("li"),function(li,k){ var st=r.steps[k]; li.onclick=function(){ map.easeTo({center:[st.ll[1],st.ll[0]],zoom:16}); setSheet(false); }; });
+    list.appendChild(d);
+  }
 }
 
 // ---- 画面操作 ----
