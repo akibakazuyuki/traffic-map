@@ -311,7 +311,7 @@ var REGIONS = [
 
 function $(id){ return document.getElementById(id); }
 // 新しい版が公開されていたら自動で読み込み直す（スマホに古いページが残るのを防ぐ）
-var APP_VER="20260927-2";
+var APP_VER="20260927-3";
 (function(){ try{ fetch(location.pathname+"?check="+Date.now(),{cache:"no-store"}).then(function(r){ return r.text(); }).then(function(t){
   var m=t.match(/APP_VER="([^"]+)"/); if(m && m[1]!==APP_VER && location.search.indexOf("v="+m[1])<0) location.replace(location.pathname+"?v="+m[1]+location.hash); }).catch(function(){}); }catch(e){} })();
 function ls(k,v){ try{ if(v===undefined) return localStorage.getItem(k); if(v===null) localStorage.removeItem(k); else localStorage.setItem(k,v);}catch(e){ return null; } }
@@ -873,7 +873,7 @@ function parseRoute(rt){
   });
   var steps=(((rt.guidance||{}).instructions)||[]).filter(function(g){ return g.point; }).map(function(g){
     var road=(g.roadNumbers||[]).join("・")||g.street||g.signpostText||"";
-    return {off:(g.routeOffsetInMeters||0)/1000, msg:g.message||(MAN[g.maneuver]||"道なり")+(road?"（"+road+"）":""), road:road, man:g.maneuver||"", ll:[g.point.latitude,g.point.longitude]}; });
+    return {off:(g.routeOffsetInMeters||0)/1000, msg:(g.message && /[぀-ヿ一-鿿]/.test(g.message)) ? g.message : (MAN[g.maneuver]||"道なり")+(road?"（"+road+"）":""), road:road, man:g.maneuver||"", ll:[g.point.latitude,g.point.longitude]}; });
   var sm=rt.summary||{};
   // 日本の高速は基本的に有料なので、有料区間の情報が無いときは高速区間の距離で料金を見積もる
   if(toll<0.5 && mw>0) toll=mw;
@@ -918,14 +918,20 @@ function searchRoutes(){
     var byTime=all.slice().sort(function(a,b){return a.time-b.time;})[0];
     var cheap = R.hwy ? all.slice().sort(function(a,b){return (a.yen-b.yen)||(a.time-b.time);})[0] : all.slice().sort(function(a,b){return a.len-b.len;})[0];
     // おすすめ：時間と料金の釣り合い（1分あたり40円で換算）＋渋滞・事故の少なさ
-    var best=all.slice().sort(function(a,b){ return score(a)-score(b); })[0];
+    var best=recommend(all, byTime);
     var raw=[{k:"おすすめ",r:best},{k:"時間優先",r:byTime},{k:R.hwy?"料金優先":"距離優先",r:cheap}];
     // 同じルートは1枚にまとめる
     R.picks=[]; raw.forEach(function(p){ var same=R.picks.filter(function(x){ return x.r===p.r; })[0]; if(same) same.also=(same.also||[]).concat(p.k); else R.picks.push({k:p.k,r:p.r}); });
     R.sel=0; drawCards(); pickRoute(0);
   }).catch(function(e){ $("rCards").innerHTML='<div class="empty">ルートを計算できませんでした（'+esc(e.message||"")+'）。'+(/40[13]/.test(e.message||"")?'TomTomのキーでRouting APIが使えない可能性があります。':'目的地や道路の設定を変えて試してください。')+'</div>'; });
 }
-function score(r){ var bad=r.traffic.filter(function(t){return t.kind==="acc"||t.kind==="cls";}).length; return r.time/60 + r.yen/40 + bad*10; }
+function bad(r){ return r.traffic.filter(function(t){return t.kind==="acc"||t.kind==="cls";}).length; }
+// おすすめ：基本は一番早いルート。5分以内の遅れで500円以上安くなる、または事故・通行止めを避けられる場合だけ別のルートにする
+function recommend(all, fast){
+  var cand=all.filter(function(r){ return r!==fast && r.time<=fast.time+300 && (fast.yen-r.yen>=500 || bad(r)<bad(fast)); });
+  cand.sort(function(a,b){ return (bad(a)-bad(b)) || (a.time-b.time); });
+  return cand[0] || fast;
+}
 function trafficCount(r){ var n={jam:0,acc:0,cls:0}; r.traffic.forEach(function(t){ if(t.kind==="jam") n.jam++; else if(t.kind==="acc") n.acc++; else if(t.kind==="cls") n.cls++; }); return n; }
 function drawCards(){
   var box=$("rCards"); box.innerHTML="";
