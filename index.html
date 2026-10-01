@@ -121,7 +121,7 @@ html.lowz .orbis{display:none}
 .sheet-head{display:flex;justify-content:space-between;align-items:center;width:100%;gap:8px}
 .sheet-head h2{margin:0;font-size:15px}
 .legend{display:flex;align-items:center;gap:4px 6px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
-html.gmap #lgCong{background:#f2dc1a!important}
+html.gmap.ttraf #lgCong{background:#f2dc1a!important}
 .legend i{display:inline-block;width:14px;height:4px;border-radius:2px;margin-left:4px}
 .seg button{border:0;background:none;padding:4px 10px;border-radius:8px;font-size:12px;color:var(--muted)}
 .seg button[aria-pressed="true"]{background:var(--sign);color:var(--sign-ink);font-weight:700}
@@ -342,7 +342,7 @@ var REGIONS = [
 
 function $(id){ return document.getElementById(id); }
 // 新しい版が公開されていたら自動で読み込み直す（スマホに古いページが残るのを防ぐ）
-var APP_VER="20260927-18";
+var APP_VER="20260927-19";
 (function(){ try{ fetch(location.pathname+"?check="+Date.now(),{cache:"no-store"}).then(function(r){ return r.text(); }).then(function(t){
   var m=t.match(/APP_VER="([^"]+)"/); if(m && m[1]!==APP_VER && location.search.indexOf("v="+m[1])<0) location.replace(location.pathname+"?v="+m[1]+location.hash); }).catch(function(){}); }catch(e){} })();
 function ls(k,v){ try{ if(v===undefined) return localStorage.getItem(k); if(v===null) localStorage.removeItem(k); else localStorage.setItem(k,v);}catch(e){ return null; } }
@@ -500,7 +500,8 @@ function GM(){
     gmap=new google.maps.Map(document.getElementById("map"),{center:{lat:36.2,lng:138.3},zoom:5,minZoom:4,maxZoom:19,disableDefaultUI:true,
       gestureHandling:"greedy",clickableIcons:false,keyboardShortcuts:false,styles:GSTYLE,backgroundColor:"#bcd8ef"});
     // 混雑・渋滞の区間だけ色を付ける（TomTomの遅延表示。順調な区間は色を付けない）
-    if(key){ var addDelay=function(){ var t=Date.now(); var mt=new google.maps.ImageMapType({tileSize:new google.maps.Size(256,256),maxZoom:19,
+    // 地図の渋滞表示：既定はGoogleの交通情報（抜けが少ない）。"tt"にするとTomTomの渋滞区間だけの表示
+    if(key && ls("trafSrc")==="tt"){ document.documentElement.classList.add("ttraf"); var addDelay=function(){ var t=Date.now(); var mt=new google.maps.ImageMapType({tileSize:new google.maps.Size(256,256),maxZoom:19,
         getTileUrl:function(c,z){ var n=1<<z; if(c.y<0||c.y>=n) return null; var x=((c.x%n)+n)%n;
           return "https://api.tomtom.com/traffic/map/4/tile/flow/relative-delay/"+z+"/"+x+"/"+c.y+".png?key="+encodeURIComponent(key)+"&t="+t; }});
         var ov=gmap.overlayMapTypes, idx=-1; for(var i=0;i<ov.getLength();i++){ if(ov.getAt(i)&&ov.getAt(i).name==="delay") idx=i; }
