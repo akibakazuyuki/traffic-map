@@ -342,7 +342,7 @@ var REGIONS = [
 
 function $(id){ return document.getElementById(id); }
 // 新しい版が公開されていたら自動で読み込み直す（スマホに古いページが残るのを防ぐ）
-var APP_VER="20260927-19";
+var APP_VER="20260927-20";
 (function(){ try{ fetch(location.pathname+"?check="+Date.now(),{cache:"no-store"}).then(function(r){ return r.text(); }).then(function(t){
   var m=t.match(/APP_VER="([^"]+)"/); if(m && m[1]!==APP_VER && location.search.indexOf("v="+m[1])<0) location.replace(location.pathname+"?v="+m[1]+location.hash); }).catch(function(){}); }catch(e){} })();
 function ls(k,v){ try{ if(v===undefined) return localStorage.getItem(k); if(v===null) localStorage.removeItem(k); else localStorage.setItem(k,v);}catch(e){ return null; } }
@@ -442,7 +442,8 @@ function drawXWTile(ctx,tx,ty,z,sc){
   var vis=XW.lines.filter(function(l){ return !(l.b[2]<lon0||l.b[0]>lon1||l.b[3]<lat0||l.b[1]>lat1); }), w=xwWidth(z);
   function path(l){ var c=l.c; ctx.beginPath(); ctx.moveTo(wx(c[0],z),wy(c[1],z)); for(var i=2;i<c.length;i+=2) ctx.lineTo(wx(c[i],z),wy(c[i+1],z)); ctx.stroke(); }
   // 14以上はGoogleの道路の形の方が正確なので、線は描かず名前だけ出す
-  if(z<=13){ ctx.strokeStyle="#27323a"; ctx.lineWidth=w+(z>=10?2.4:1.6); vis.forEach(path);
+  // Googleの交通情報を使うときは、渋滞の色を隠さないよう線は描かず名前とICだけにする
+  if(z<=13 && document.documentElement.classList.contains("ttraf")){ ctx.strokeStyle="#27323a"; ctx.lineWidth=w+(z>=10?2.4:1.6); vis.forEach(path);
     ctx.strokeStyle="#ffffff"; ctx.lineWidth=w; vis.forEach(path); }
   if(z<8) return;
   var fs=z>=12?13:12; ctx.textAlign="center"; ctx.textBaseline="middle";
@@ -453,7 +454,8 @@ function drawXWTile(ctx,tx,ty,z,sc){
     if(L.k==="p"){ ctx.save(); ctx.textAlign="left"; ctx.font="700 "+(fs-1)+"px 'BIZ UDPGothic',sans-serif"; ctx.lineWidth=3.5; ctx.strokeStyle="#fff";
       ctx.strokeText(L.s,L.x+9,L.y); ctx.fillStyle=L.t==="s"||L.t==="p"?"#1c6fd8":"#27323a"; ctx.fillText(L.s,L.x+9,L.y); ctx.restore(); }
     if(L.k==="r"){ ctx.save(); ctx.translate(L.x,L.y); ctx.rotate(L.a); ctx.font="700 "+fs+"px 'BIZ UDPGothic',sans-serif";
-      ctx.lineWidth=4; ctx.strokeStyle="#fff"; ctx.strokeText(L.s,0,0); ctx.fillStyle="#0b5a8c"; ctx.fillText(L.s,0,0); ctx.restore(); }
+      var dy=-(xwWidth(z)/2+fs*0.75); /* 渋滞の色を隠さないよう線の横に置く */
+      ctx.lineWidth=4; ctx.strokeStyle="#fff"; ctx.strokeText(L.s,0,dy); ctx.fillStyle="#0b5a8c"; ctx.fillText(L.s,0,dy); ctx.restore(); }
   });
 }
 function xwMapType(){
@@ -513,6 +515,7 @@ function GM(){
     gmap.addListener("idle",function(){ onMove.forEach(function(f){ f(); }); });
     // 13以下は自前の高速道路の線を上に描くので、Googleの高速道路は薄くして二重に見えないようにする
     var PALE=[{featureType:"road.highway.controlled_access",elementType:"geometry.stroke",stylers:[{color:"#e4ddcd"},{weight:0.6}]}];
+    if(!(key && ls("trafSrc")==="tt")) PALE=[];
     var GMID=GSTYLE.concat(PALE), GLOW=GMID.concat([{featureType:"road.arterial",stylers:[{visibility:"off"}]},{featureType:"road.local",stylers:[{visibility:"off"}]}]), lowSt=null;
     var roadDetail=function(){ var z=gmap.getZoom(), lv=z<12?0:z<14?1:2; if(lv!==lowSt){ lowSt=lv; gmap.setOptions({styles:[GLOW,GMID,GSTYLE][lv]}); } };
     roadDetail(); gmap.addListener("zoom_changed",roadDetail);
