@@ -4,8 +4,6 @@ on:
   push:
     branches: [main]
     paths: [scripts/build_expressways.py, .github/workflows/expressways.yml]
-  schedule:
-    - cron: "0 18 1 * *"
 permissions:
   contents: write
 jobs:
