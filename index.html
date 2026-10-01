@@ -222,7 +222,8 @@ html.gmap.ttraf #lgCong{background:#f2dc1a!important}
   </button>
   <div style="padding:0 12px 8px;display:flex;justify-content:space-between;align-items:center;gap:8px">
     <div class="legend" aria-label="凡例"><i id="lgCong" style="background:#f39a1e"></i>混雑<i style="background:#e8302a"></i>渋滞<i style="background:var(--closed)"></i>通行止</div>
-    <button class="btn ghost" id="btnRefresh" type="button" style="padding:6px 12px;font-size:13px">更新</button>
+    <span style="display:flex;gap:6px"><button class="btn ghost" id="btnGmaps" type="button" style="padding:6px 10px;font-size:13px" aria-label="この場所をGoogleマップで開く（通行止めの確認）">Gマップ</button>
+    <button class="btn ghost" id="btnRefresh" type="button" style="padding:6px 12px;font-size:13px">更新</button></span>
   </div>
   <div class="list" id="list"></div>
 </section>
@@ -342,7 +343,7 @@ var REGIONS = [
 
 function $(id){ return document.getElementById(id); }
 // 新しい版が公開されていたら自動で読み込み直す（スマホに古いページが残るのを防ぐ）
-var APP_VER="20260927-20";
+var APP_VER="20260927-21";
 (function(){ try{ fetch(location.pathname+"?check="+Date.now(),{cache:"no-store"}).then(function(r){ return r.text(); }).then(function(t){
   var m=t.match(/APP_VER="([^"]+)"/); if(m && m[1]!==APP_VER && location.search.indexOf("v="+m[1])<0) location.replace(location.pathname+"?v="+m[1]+location.hash); }).catch(function(){}); }catch(e){} })();
 function ls(k,v){ try{ if(v===undefined) return localStorage.getItem(k); if(v===null) localStorage.removeItem(k); else localStorage.setItem(k,v);}catch(e){ return null; } }
@@ -1467,6 +1468,9 @@ function navOrbis(r,done){
   R.orbW=R.orbW||{}; if(!R.orbW[no.id+"_"+lv]){ R.orbW[no.id+"_"+lv]=1; beep(); try{ navigator.vibrate && navigator.vibrate(lv===3?[300,120,300,120,300]:[300,150,300]); }catch(e){} }
   return true;
 }
+// 通行止めの詳細はGoogleの開発者向けAPIでは取れないので、同じ場所をGoogleマップ（交通状況つき）で開けるようにする
+$("btnGmaps").onclick=function(){ var c=map.getCenter(), z=Math.round(map.getZoom?map.getZoom():11);
+  window.open("https://www.google.com/maps/@?api=1&map_action=map&center="+c.lat.toFixed(5)+","+c.lng.toFixed(5)+"&zoom="+Math.max(8,Math.min(18,z))+"&layer=traffic","_blank","noopener"); };
 // ---- 走行中のリアルタイム監視 ----
 $("btnGo").onclick=function(){
   R.nav=true; R.seen={}; R.lastDelay=null; R.cur=R.picks[R.sel];
